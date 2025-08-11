@@ -14,8 +14,229 @@ datasource db {
 }
 
 model User {
-  id        String   @id
-  email     String?   @unique
-  password  String?
+  id            String      @id
+  email         String?     @unique
+  password      String?
+  fullName      String?
+  primaryExamId Int?
+  personaTag    PersonaTag? // Enum for initial experience tailoring
+
   createdAt DateTime @default(now())
+
+  primaryExam Exam? @relation(fields: [primaryExamId], references: [id])
+
+  // Performance Summaries
+  subtopicPerformance UserSubtopicPerformance[]
+  examSummaries       UserExamOverallSummary[]
+  testInstances       UserTestInstanceSummary[]
+  UserTestAnswer      UserTestAnswer[]
+}
+
+model Exam {
+  id   Int    @id @default(autoincrement())
+  name String @unique // e.g., 'JEE Main & Advanced', 'NEET UG'
+
+  durationInMinutes         Int     // e.g., 180
+  totalQuestions            Int     // e.g., 90
+  
+  marksPerCorrect           Int     @default(4)
+  // Store as a positive integer. The application logic will subtract it.
+  negativeMarksPerIncorrect Int     @default(1) 
+  marksPerUnattempted       Int     @default(0)
+  
+  testInstances UserTestInstanceSummary[] 
+  subjects      Subject[]
+  users         User[]
+  examSummaries UserExamOverallSummary[]
+}
+
+model Subject {
+  id     Int    @id @default(autoincrement())
+  examId Int
+  name   String // e.g., 'Physics', 'Chemistry'
+
+  exam   Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  topics Topic[]
+
+  @@unique([examId, name])
+}
+
+model Topic {
+  id        Int    @id @default(autoincrement())
+  subjectId Int
+  name      String // e.g., 'Rotational Motion', 'Organic Chemistry'
+
+  // --- Relationships ---
+  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subtopics Subtopic[]
+
+  @@unique([subjectId, name])
+}
+
+model Subtopic {
+  id      Int    @id @default(autoincrement())
+  topicId Int
+  name    String // e.g., 'Moment of Inertia'
+
+  topic           Topic                     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  questions       Question[] // A subtopic has many questions
+  userPerformance UserSubtopicPerformance[]
+
+  @@unique([topicId, name])
+}
+
+model Question {
+  id         Int @id @default(autoincrement())
+  subtopicId Int
+
+  question      String
+  shortcut      String?
+  equations     String? // e.g., "F = ma", "E = mc^2"
+  imageUrl      String? // URL to an image, if applicable
+  imagesolurl   String? // URL to an image solution, if applicable
+  options       Json? // e.g., {"A": "...", "B": "..."}
+  correctOption String
+  solution      String
+
+  // Metadata & ML Features
+  examname             String   // JEE Main 2024 - 27th Jan Shift 1
+  humanDifficultyLevel DifficultyLevel // Enum for human assessment
+  questionType         String[] // Array of strings for types
+  wordCountQuestion    Int?
+  wordCountSolution    Int?
+  averageTimeSec       Int? // Average time taken to solve this question
+  Report               Boolean?
+  ReportReason         String?
+
+  // ML-Generated Fields (start as null)
+  predictedDifficultyScore Float?
+  platformAvgTimeSec       Int?
+
+  // --- Relationships ---
+  subtopic       Subtopic         @relation(fields: [subtopicId], references: [id])
+  UserTestAnswer UserTestAnswer[]
+}
+
+model UserSubtopicPerformance {
+  userId     String
+  subtopicId Int
+
+  // Performance Metrics
+  totalAttempted    Int @default(0)
+  totalCorrect      Int @default(0)
+  totalIncorrect    Int @default(0)
+  totalTimeTakenSec Int @default(0)
+
+  // Derived Fields for fast queries
+  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
+  avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
+
+  // Timestamps
+  lastUpdatedAt DateTime @updatedAt
+
+  // --- Relationships & Indexes ---
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subtopic Subtopic @relation(fields: [subtopicId], references: [id], onDelete: Cascade)
+
+  @@id([userId, subtopicId]) // Composite Primary Key
+  @@index([userId, accuracyPercent]) // For fast lookups of a user's weakest topics
+}
+
+model UserExamOverallSummary {
+  userId String
+  examId Int
+
+  // Overall Performance
+  totalQuestionsAttempted Int     @default(0)
+  totalCorrect            Int     @default(0)
+  totalIncorrect          Int     @default(0)
+  overallAccuracyPercent  Decimal @default(0.00) @db.Decimal(5, 2)
+
+  // Engagement Metrics
+  totalMockTestsCompleted Int @default(0)
+
+  lastUpdatedAt DateTime @updatedAt
+
+  // --- Relationships ---
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@id([userId, examId]) // Composite Primary Key
+}
+
+// Stores the result of every single test a user takes.
+model UserTestInstanceSummary {
+  id       String   @id @default(uuid())
+  userId   String
+  examId   Int
+  testName String?
+  testType TestType
+
+  // Overall test performance
+  score          Int
+  totalMarks     Int
+  percentile     Decimal? @db.Decimal(5, 2)
+  totalQuestions Int
+  numCorrect     Int
+  numIncorrect   Int
+  numUnattempted Int
+  timeTakenSec   Int
+
+  completedAt DateTime @default(now())
+  
+  exam Exam @relation(fields: [examId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  answers UserTestAnswer[]
+
+  @@index([userId, completedAt(sort: Desc)])
+}
+
+model UserTestAnswer {
+  id             String @id @default(uuid())
+  testInstanceId String
+  questionId     Int
+  userId         String
+
+  userAnswer   String?
+  isCorrect    Boolean
+  status       AnswerStatus
+  timeTakenSec Int
+
+  testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
+  question     Question                @relation(fields: [questionId], references: [id])
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([testInstanceId, questionId])
+  @@index([testInstanceId])
+}
+
+enum AnswerStatus {
+  Correct
+  Incorrect
+  Unattempted
+}
+
+enum PersonaTag {
+  beginner
+  striker
+  topper
+}
+
+enum DifficultyLevel {
+  Easy
+  Medium
+  Hard
+  Elite
+}
+
+enum TestType {
+  mock
+  quiz
+  drill
+  diagnostic
+  group
+  custom
+  weakness
+  pyq
 }
