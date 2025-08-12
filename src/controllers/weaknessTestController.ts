@@ -5,36 +5,20 @@ import { AnswerStatus, type Question } from "@prisma/client";
 
 const router = Router();
 
-// =================================================================================
-// TYPE DEFINITIONS & INTERFACES
-// =================================================================================
-
-// For the request body when submitting a test
 interface AnswerPayload {
   questionId: number;
   userAnswer: string | null;
   timeTaken: number;
 }
 
-// For the user object attached to the request (assuming you have auth middleware)
-interface AuthenticatedRequest extends Request {
-  user?: {
-    userId: string;
-  };
-}
-
-// =================================================================================
 // ROUTE 1: GET /weakness/exams - Get list of exams available for a weakness test
-// =================================================================================
-const getAvailableExams = async (req: AuthenticatedRequest, res: Response) => {
+const getAvailableExams = async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) {
+    const uid = req.user;
+    if (!uid) {
       return res.status(401).json({ error: "User not authenticated" });
     }
 
-    // A simple and robust approach: return all exams.
-    // The frontend can call getWeakestTopics to check if enough data exists for a specific exam.
     const allExams = await prisma.exam.findMany({
       select: {
         id: true,
@@ -61,16 +45,12 @@ const getAvailableExams = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-// =================================================================================
-// ROUTE 2: GET /weakness/preview - Get a preview of the weakness test for a given exam
-// =================================================================================
-const getWeakestTopics = async (req: AuthenticatedRequest, res: Response) => {
+const getWeakestTopics = async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const { uid } = req.user;
     const { examId } = req.query;
 
-    if (!userId)
-      return res.status(401).json({ error: "User not authenticated" });
+    if (!uid) return res.status(401).json({ error: "User not authenticated" });
     if (!examId) return res.status(400).json({ error: "Exam ID is required" });
 
     const exam = await prisma.exam.findUnique({
@@ -81,7 +61,7 @@ const getWeakestTopics = async (req: AuthenticatedRequest, res: Response) => {
 
     const weakestSubtopics = await prisma.userSubtopicPerformance.findMany({
       where: {
-        userId: userId,
+        userId: uid,
         totalAttempted: { gte: 3 }, // Only consider subtopics with at least 3 attempts
         subtopic: { topic: { subject: { examId: exam.id } } },
       },
@@ -154,16 +134,12 @@ const getWeakestTopics = async (req: AuthenticatedRequest, res: Response) => {
 // =================================================================================
 // ROUTE 3: POST /weakness/generate - Create the test instance and return questions
 // =================================================================================
-const generateWeaknessTest = async (
-  req: AuthenticatedRequest,
-  res: Response
-) => {
+const generateWeaknessTest = async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const { uid } = req.user;
     const { examId } = req.body;
 
-    if (!userId)
-      return res.status(401).json({ error: "User not authenticated" });
+    if (!uid) return res.status(401).json({ error: "User not authenticated" });
     if (!examId) return res.status(400).json({ error: "Exam ID is required" });
 
     // 1. Fetch the Exam Blueprint
@@ -174,7 +150,7 @@ const generateWeaknessTest = async (
     const weakestSubtopicsPerformance =
       await prisma.userSubtopicPerformance.findMany({
         where: {
-          userId: userId,
+          userId: uid,
           totalAttempted: { gte: 3 },
           subtopic: { topic: { subject: { examId: exam.id } } },
         },
@@ -221,7 +197,7 @@ const generateWeaknessTest = async (
     // 5. Create the test instance using data from the Exam blueprint
     const testInstance = await prisma.userTestInstanceSummary.create({
       data: {
-        userId: userId,
+        userId: uid,
         examId: exam.id, // Storing the examId for context
         testName: `${exam.name} - Weakness Test`,
         testType: "weakness",
@@ -267,27 +243,24 @@ const generateWeaknessTest = async (
   }
 };
 
-// =================================================================================
 // ROUTE 4: POST /weakness/submit/:testInstanceId - Submit the completed test
-// =================================================================================
-const submitWeaknessTest = async (req: AuthenticatedRequest, res: Response) => {
+const submitWeaknessTest = async (req: Request, res: Response) => {
   try {
     const { testInstanceId } = req.params;
     const { answers, timeTakenSec } = req.body as {
       answers: AnswerPayload[];
       timeTakenSec: number;
     };
-    const userId = req.user?.userId;
+    const { uid } = req.user;
 
-    if (!userId)
-      return res.status(401).json({ error: "User not authenticated" });
+    if (!uid) return res.status(401).json({ error: "User not authenticated" });
     if (!testInstanceId || !answers || !Array.isArray(answers)) {
       return res.status(400).json({ error: "Invalid request payload." });
     }
 
     // --- PHASE 1: BULK READ ---
     const testInstance = await prisma.userTestInstanceSummary.findUnique({
-      where: { id: testInstanceId, userId: userId },
+      where: { id: testInstanceId, userId: uid },
       include: { exam: true },
     });
 
@@ -446,24 +419,18 @@ const submitWeaknessTest = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-// =================================================================================
 // ROUTE 5: GET /weakness/results/:testInstanceId - Get detailed test results
-// =================================================================================
-const getWeaknessTestResults = async (
-  req: AuthenticatedRequest,
-  res: Response
-) => {
+const getWeaknessTestResults = async (req: Request, res: Response) => {
   try {
     const { testInstanceId } = req.params;
-    const userId = req.user?.userId;
+    const { uid } = req.user;
 
-    if (!userId)
-      return res.status(401).json({ error: "User not authenticated" });
+    if (!uid) return res.status(401).json({ error: "User not authenticated" });
     if (!testInstanceId)
       return res.status(400).json({ error: "Test instance ID is required" });
 
     const testInstance = await prisma.userTestInstanceSummary.findUnique({
-      where: { id: testInstanceId, userId: userId },
+      where: { id: testInstanceId, userId: uid },
       include: {
         answers: {
           orderBy: { question: { id: "asc" } }, // Consistent ordering
