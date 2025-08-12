@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { verifyFirebaseToken } from "../middleware/authMiddleware.js";
 import {
+  getAvailableExams,
   getWeakestTopics,
   generateWeaknessTest,
   submitWeaknessTest,
@@ -9,6 +10,7 @@ import {
 
 const router = Router();
 
+router.get("/exams", verifyFirebaseToken, getAvailableExams);
 router.get("/preview", verifyFirebaseToken, getWeakestTopics);
 router.post("/generate", verifyFirebaseToken, generateWeaknessTest);
 router.post("/submit/:testInstanceId", verifyFirebaseToken, submitWeaknessTest);

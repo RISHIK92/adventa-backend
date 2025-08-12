@@ -131,9 +131,7 @@ const getWeakestTopics = async (req: Request, res: Response) => {
   }
 };
 
-// =================================================================================
 // ROUTE 3: POST /weakness/generate - Create the test instance and return questions
-// =================================================================================
 const generateWeaknessTest = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
@@ -529,13 +527,10 @@ const getWeaknessTestResults = async (req: Request, res: Response) => {
   }
 };
 
-// =================================================================================
-// ROUTER EXPORT
-// =================================================================================
-router.get("/exams", getAvailableExams);
-router.get("/preview", getWeakestTopics);
-router.post("/generate", generateWeaknessTest);
-router.post("/submit/:testInstanceId", submitWeaknessTest);
-router.get("/results/:testInstanceId", getWeaknessTestResults);
-
-export default router;
+export {
+  getAvailableExams,
+  getWeakestTopics,
+  generateWeaknessTest,
+  submitWeaknessTest,
+  getWeaknessTestResults,
+};
