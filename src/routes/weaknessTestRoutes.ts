@@ -6,12 +6,15 @@ import {
   generateWeaknessTest,
   submitWeaknessTest,
   getWeaknessTestResults,
+  getAccuracyComparison,
+  getWeaknessTestSummary,
 } from "../controllers/weaknessTestController.js";
+import { defineDmmfProperty } from "@prisma/client/runtime/library";
 
 const router = Router();
 
 router.get("/exams", verifyFirebaseToken, getAvailableExams);
-router.get("/preview", verifyFirebaseToken, getWeakestTopics);
+router.get("/preview/:examId", verifyFirebaseToken, getWeakestTopics);
 router.post("/generate", verifyFirebaseToken, generateWeaknessTest);
 router.post("/submit/:testInstanceId", verifyFirebaseToken, submitWeaknessTest);
 router.get(
@@ -19,5 +22,15 @@ router.get(
   verifyFirebaseToken,
   getWeaknessTestResults
 );
+router.get(
+  "/accuracy-comparison/:testInstanceId",
+  verifyFirebaseToken,
+  getAccuracyComparison
+);
+router.get(
+  `/results/:testInstanceId/summary`,
+  verifyFirebaseToken,
+  getWeaknessTestSummary
+);
 
-module.exports = router;
+export default router;

@@ -8,6 +8,9 @@
     "build": "tsc -b",
     "start": "node dist/index.js"
   },
+  "prisma": {
+    "seed": "ts-node --esm prisma/seed.ts"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RISHIK92/adventa-backend.git"
@@ -21,6 +24,7 @@
   },
   "homepage": "https://github.com/RISHIK92/adventa-backend#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.13.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",

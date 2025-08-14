@@ -1,0 +1,317 @@
+[
+  {
+    "id": 1,
+    "shortcut": "The functional equation f(x+y) = f(x)f(y) implies a function of the form f(x) = e^(λx). Substitute this into the given differential equation to form an algebraic equation in terms of 'a' and solve for 'a'. Then integrate to find the area.",
+    "question": "Let f:R→R be a twice differentiable function such that f(x+y)=f(x)f(y) for all x, y∈ R. If f'(0)=4a and f satisfies f''(x)−3a f'(x)−f(x)=0, a > 0, then the area of the region R={(x,y)|0≤y≤f(ax), 0≤x≤2} is:",
+    "equation": "$f(x+y)=f(x)f(y)$, $f'(0)=4a$, $f''(x)-3a f'(x)-f(x)=0$, $R=\\{(x,y)|0 \\le y \\le f(ax), 0 \\le x \\le 2\\}$",
+    "imageurl": "https://storage.googleapis.com/sarals-prod/images/2024/07/26/13629-JEE-Main-2025-Question-Paper-with-Solution-22-Jan-Shift-1-PDF-1.png",
+    "options": {
+      "A": "$e^{2}-1$",
+      "B": "$e^{4}+1$",
+      "C": "$e^{4}-1$",
+      "D": "$e^{2}+1$"
+    },
+    "correct_option": "A",
+    "difficulty_level": "Medium",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "1. [cite_start]The functional equation $f(x+y)=f(x)f(y)$ implies the function is of the form $f(x) = e^{\\lambda x}$. [cite: 46, 47]\n2. [cite_start]Differentiating $f(x)$, we get $f'(x) = \\lambda e^{\\lambda x}$. [cite: 47]\n3. Given $f'(0) = 4a$, we have $\\lambda e^{\\lambda \\cdot 0} = \\lambda = 4a$. [cite_start]So, $f(x) = e^{4ax}$. [cite: 47, 48]\n4. [cite_start]The function must satisfy the differential equation $f''(x) - 3af'(x) - f(x) = 0$. [cite: 49]\n5. The derivatives are $f'(x) = 4a e^{4ax}$ and $f''(x) = 16a^2 e^{4ax}$.\n6. Substituting these into the differential equation gives: $16a^2 e^{4ax} - 3a(4a e^{4ax}) - e^{4ax} = 0$. [cite_start]This implies a characteristic equation $\\lambda^2 - 3a\\lambda - 1 = 0$. [cite: 50]\n7. [cite_start]Substituting $\\lambda = 4a$ yields $16a^2 - 3a(4a) - 1 = 0$, which simplifies to $16a^2 - 12a^2 - 1 = 0$, giving $4a^2 = 1$. [cite: 51]\n8. [cite_start]Since $a > 0$, we have $a = 1/2$. [cite: 51]\n9. The function for the area calculation is $f(ax) = e^{4a(ax)} = e^{4a^2x}$. [cite_start]Substituting $a=1/2$, we get $f(ax) = e^{4(1/4)x} = e^x$. [cite: 53]\n10. [cite_start]The area is given by the integral $A = \\int_{0}^{2} f(ax) dx = \\int_{0}^{2} e^x dx$. [cite: 54]\n11. [cite_start]Evaluating the integral: $A = [e^x]_0^2 = e^2 - e^0 = e^2 - 1$. [cite: 54]",
+    "imagesolurl": null,
+    "subject": "Mathematics",
+    "topic": "Calculus",
+    "subtopics": [
+      "Functional Equations",
+      "Differential Equations",
+      "Definite Integration",
+      "Area Under Curve"
+    ],
+    "question_type": ["Calculation-intensive", "Conceptual", "Multi-step"],
+    "avg_time_to_solve": 150
+  },
+  {
+    "id": 2,
+    "shortcut": "When the sliding contact is in the middle, the potentiometer wire of resistance Rp is split into two equal resistors of Rp/2. The external resistor Re is parallel to the second half, and this combination is in series with the first half. Calculate the equivalent resistance and use Ohm's law.",
+    "question": "Sliding contact of a potentiometer is in the middle of the potentiometer wire having resistance $R_p=1\\Omega$ as shown in the figure. An external resistance of $R_e=2\\Omega$ is connected via the sliding contact. The total current drawn from the source is:",
+    "equation": "$R_p = 1\\Omega$, $R_e = 2\\Omega$",
+    "imageurl": null,
+    "options": {
+      "A": "0.3 A",
+      "B": "1.35 A",
+      "C": "1.0 A",
+      "D": "0.9 A"
+    },
+    "correct_option": "C",
+    "difficulty_level": "Easy",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "1. The potentiometer wire has a total resistance of $R_p = 1\\Omega$. [cite_start]Since the sliding contact is in the middle, the wire is split into two resistors, each with a resistance of $1\\Omega / 2 = 0.5\\Omega$. [cite: 451, 453, 454]\n2. [cite_start]The external resistor $R_e = 2\\Omega$ is connected in parallel with the second half of the potentiometer wire ($0.5\\Omega$). [cite: 445, 451]\n3. [cite_start]The equivalent resistance of this parallel combination ($R_{\\text{parallel}}$) is: $R_{\\text{parallel}} = \\frac{(0.5\\Omega) \\times (2\\Omega)}{0.5\\Omega + 2\\Omega} = \\frac{1}{2.5}\\Omega = 0.4\\Omega$. [cite: 468]\n4. [cite_start]The first half of the potentiometer wire ($0.5\\Omega$) is in series with this parallel combination. [cite: 451]\n5. [cite_start]The total equivalent resistance of the circuit ($R_{\\text{eq}}$) is: $R_{\\text{eq}} = 0.5\\Omega + R_{\\text{parallel}} = 0.5\\Omega + 0.4\\Omega = 0.9\\Omega$. [cite: 468, 469]\n6. [cite_start]The voltage of the source is $V = 0.9V$. [cite: 439]\n7. [cite_start]Using Ohm's law, the total current (i) drawn from the source is: $i = \\frac{V}{R_{\\text{eq}}} = \\frac{0.9V}{0.9\\Omega} = 1A$. [cite: 469]",
+    "imagesolurl": "https://res.cloudinary.com/dkdidynja/image/upload/v1754820066/Screenshot_2025-08-10_at_3.30.58_PM_zxobur.png",
+    "subject": "Physics",
+    "topic": "Current Electricity",
+    "subtopics": [
+      "Potentiometer",
+      "Equivalent Resistance",
+      "Series and Parallel Circuits",
+      "Ohm's Law"
+    ],
+    "question_type": [
+      "Circuit-based",
+      "Calculation-intensive",
+      "Diagram-based"
+    ],
+    "avg_time_to_solve": 90
+  },
+  {
+    "id": 3,
+    "shortcut": "To find the number of stereoisomers for an unsymmetrical molecule, use the formula 2^n, where 'n' is the total number of stereocenters (chiral carbons + double bonds showing geometrical isomerism). Here, there is one chiral center and one double bond capable of cis/trans isomerism, so n=2.",
+    "question": "How many different stereoisomers are possible for the given molecule?\n$CH_3-CH(OH)-CH=CH-CH_3$",
+    "equation": "$CH_3-CH(OH)-CH=CH-CH_3$",
+    "imageurl": null,
+    "options": {
+      "A": "3",
+      "B": "1",
+      "C": "2",
+      "D": "4"
+    },
+    "correct_option": "D",
+    "difficulty_level": "Easy",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "1. [cite_start]The given molecule is Pent-3-en-2-ol: $CH_3-CH(OH)-CH=CH-CH_3$. [cite: 810]\n2. We need to identify the stereocenters.\n3. The carbon at position 2 (C2) is attached to four different groups (-H, -OH, -CH3, and -CH=CH-CH3). Therefore, it is a chiral center. It can have two configurations (R or S).\n4. The double bond is between C3 and C4. The groups on C3 are (-H, -CH(OH)CH3) and the groups on C4 are (-H, -CH3). Since the groups on each carbon of the double bond are different, it can exhibit geometrical isomerism (cis/trans).\n5. The molecule is unsymmetrical.\n6. [cite_start]For each geometrical isomer (cis and trans), the chiral center at C2 can have two configurations (R and S). [cite: 812, 813]\n7. This gives the following combinations:\n    * (R)-trans-pent-3-en-2-ol\n    * (S)-trans-pent-3-en-2-ol\n    * (R)-cis-pent-3-en-2-ol\n    * (S)-cis-pent-3-en-2-ol\n8. [cite_start]Therefore, there are a total of $2 \\times 2 = 4$ possible stereoisomers. [cite: 811]",
+    "imagesolurl": null,
+    "subject": "Chemistry",
+    "topic": "Organic Chemistry",
+    "subtopics": [
+      "Stereoisomerism",
+      "Chirality",
+      "Geometrical Isomerism",
+      "Enantiomers",
+      "Diastereomers"
+    ],
+    "question_type": ["Conceptual", "Structural-analysis"],
+    "avg_time_to_solve": 60
+  },
+  {
+    "id": 4,
+    "shortcut": "To find the points P on L1 and Q on L2 that define the line of shortest distance, write their general coordinates using parameters λ and μ. The direction vector of PQ must be perpendicular to the direction vectors of both L1 and L2. Use the dot product condition (a1a2 + b1b2 + c1c2 = 0) to set up two linear equations in λ and μ, solve them, find a point on the line of shortest distance, and then check the options.",
+    "question": "Let $L_{1}:\\frac{x-1}{2}=\\frac{y-2}{3}=\\frac{z-3}{4}$ and $L_{2}:\\frac{x-2}{3}=\\frac{y-4}{4}=\\frac{z-5}{5}$ be two lines. Then which of the following points lies on the line of the shortest distance between L₁ and L₂?",
+    "equation": "$L_{1}:\\frac{x-1}{2}=\\frac{y-2}{3}=\\frac{z-3}{4}$ and $L_{2}:\\frac{x-2}{3}=\\frac{y-4}{4}=\\frac{z-5}{5}$",
+    "imageurl": null,
+    "options": {
+      "A": "$( -\\frac{5}{3},-7,1 )$",
+      "B": "$( 2,3,\\frac{1}{3} )$",
+      "C": "$( \\frac{8}{3},-1,\\frac{1}{3} )$",
+      "D": "$( \\frac{14}{3},-3,\\frac{22}{3} )$"
+    },
+    "correct_option": "D",
+    "difficulty_level": "Hard",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "1. [cite_start]Let a general point on $L_1$ be $P(2\\lambda+1, 3\\lambda+2, 4\\lambda+3)$ and a general point on $L_2$ be $Q(3\\mu+2, 4\\mu+4, 5\\mu+5)$. [cite: 131]\n2. [cite_start]The direction ratios (DRs) of the line segment PQ are $\\langle 3\\mu - 2\\lambda + 1, 4\\mu - 3\\lambda + 2, 5\\mu - 4\\lambda + 2 \\rangle$. [cite: 131]\n3. [cite_start]The line of shortest distance PQ is perpendicular to both $L_1$ (DRs $\\langle 2,3,4 \\rangle$) and $L_2$ (DRs $\\langle 3,4,5 \\rangle$). [cite: 138]\n4. Condition for $PQ \\perp L_1$: $2(3\\mu-2\\lambda+1) + 3(4\\mu-3\\lambda+2) + 4(5\\mu-4\\lambda+2) = 0$. This simplifies to $38\\mu - 29\\lambda + 16 = 0$. (Equation i) [cite_start][cite: 135, 136, 137]\n5. Condition for $PQ \\perp L_2$: $3(3\\mu-2\\lambda+1) + 4(4\\mu-3\\lambda+2) + 5(5\\mu-4\\lambda+2) = 0$. This simplifies to $50\\mu - 38\\lambda + 21 = 0$. (Equation ii) [cite_start][cite: 140, 141, 142]\n6. [cite_start]Solving equations (i) and (ii) gives $\\lambda = 1/3$ and $\\mu = -1/6$. [cite: 144]\n7. [cite_start]Substitute $\\lambda = 1/3$ to find point P: $P(2(1/3)+1, 3(1/3)+2, 4(1/3)+3) = P(\\frac{5}{3}, 3, \\frac{13}{3})$. [cite: 145]\n8. [cite_start]The direction ratios of the line of shortest distance are found by substituting $\\lambda$ and $\\mu$ into the DRs of PQ: $\\langle 3(-1/6)-2(1/3)+1, ... \\rangle = \\langle -1/6, 1/3, -1/6 \\rangle$, which simplifies to $\\langle 1, -2, 1 \\rangle$. [cite: 147]\n9. [cite_start]The equation of the line of shortest distance passing through P is $\\frac{x - 5/3}{1} = \\frac{y - 3}{-2} = \\frac{z - 13/3}{1}$. [cite: 147]\n10. Check which option lies on this line. [cite_start]For option D, $(\\frac{14}{3}, -3, \\frac{22}{3})$: [cite: 147]\n    * $\\frac{14/3 - 5/3}{1} = \\frac{9/3}{1} = 3$\n    * $\\frac{-3 - 3}{-2} = \\frac{-6}{-2} = 3$\n    * $\\frac{22/3 - 13/3}{1} = \\frac{9/3}{1} = 3$\n11. [cite_start]Since all expressions are equal, the point lies on the line. [cite: 148]",
+    "imagesolurl": null,
+    "subject": "Mathematics",
+    "topic": "Three-Dimensional Geometry",
+    "subtopics": [
+      "Lines in 3D Space",
+      "Shortest Distance Between Skew Lines",
+      "Direction Ratios",
+      "Vector Algebra"
+    ],
+    "question_type": ["Calculation-intensive", "Multi-step"],
+    "avg_time_to_solve": 240
+  },
+  {
+    "id": 3,
+    "shortcut": "For a complex number $z$ on the unit circle ($|z|=1$), its conjugate is its reciprocal, i.e., $\\overline{z} = 1/z$. Use this property to simplify the expression before calculating the magnitude.",
+    "question": "Let $Z_{1}$, $Z_{2}$ and $Z_{3}$ be three complex numbers on the circle $|z|=1$ with $arg(z_{1})=\\frac{-\\pi}{4}$, $arg(z_{2})=0$ and $arg(z_{3})=\\frac{\\pi}{4}$. If $|z_{1}\\overline{z}_{2}+z_{2}\\overline{z}_{3}+z_{3}\\overline{z}_{1}|^{2}=\\alpha+\\beta\\sqrt{2}$ where $\\alpha, \\beta \\in Z,$ then the value of $\\alpha^{2}+\\beta^{2}$ is:",
+    "equation": "$|z_{1}\\overline{z}_{2}+z_{2}\\overline{z}_{3}+z_{3}\\overline{z}_{1}|^{2}=\\alpha+\\beta\\sqrt{2}$",
+    "imageurl": null,
+    "options": {
+      "A": "24",
+      "B": "41",
+      "C": "31",
+      "D": "29"
+    },
+    "correct_option": "D",
+    "difficulty_level": "Medium",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "First, we express the complex numbers in exponential form, $z = e^{i\\theta}$, given $|z|=1$.\n$Z_1 = e^{-i\\pi/4}$\n$Z_2 = e^{i0} = 1$\n$Z_3 = e^{i\\pi/4}$\nFor a complex number on the unit circle, its conjugate is $\\overline{z} = e^{-i\\theta}$.\nSo, $\\overline{Z_1} = e^{i\\pi/4}$, $\\overline{Z_2} = 1$, and $\\overline{Z_3} = e^{-i\\pi/4}$.\nNow, let's evaluate the expression $E = z_{1}\\overline{z}_{2}+z_{2}\\overline{z}_{3}+z_{3}\\overline{z}_{1}$.\n$E = (e^{-i\\pi/4})(1) + (1)(e^{-i\\pi/4}) + (e^{i\\pi/4})(e^{i\\pi/4})$\n$E = 2e^{-i\\pi/4} + e^{i\\pi/2}$\nConvert to rectangular form to compute the magnitude:\n$e^{-i\\pi/4} = \\cos(-\\pi/4) + i\\sin(-\\pi/4) = \\frac{1}{\\sqrt{2}} - i\\frac{1}{\\sqrt{2}}$\n$e^{i\\pi/2} = \\cos(\\pi/2) + i\\sin(\\pi/2) = i$\n$E = 2(\\frac{1}{\\sqrt{2}} - i\\frac{1}{\\sqrt{2}}) + i = \\sqrt{2} - i\\sqrt{2} + i = \\sqrt{2} + i(1-\\sqrt{2})$\nNext, we find the square of the magnitude:\n$|E|^2 = (\\sqrt{2})^2 + (1-\\sqrt{2})^2 = 2 + (1 - 2\\sqrt{2} + 2) = 5 - 2\\sqrt{2}$.\nComparing this result with the given form $\\alpha+\\beta\\sqrt{2}$, we get $\\alpha = 5$ and $\\beta = -2$.\nFinally, we calculate the required value:\n$\\alpha^2 + \\beta^2 = (5)^2 + (-2)^2 = 25 + 4 = 29$.",
+    "imagesolurl": null,
+    "subject": "Mathematics",
+    "topic": "Complex Numbers",
+    "subtopics": [
+      "Polar Form of Complex Numbers",
+      "Euler's Formula",
+      "Modulus and Argument",
+      "Properties of Conjugates"
+    ],
+    "question_type": ["Calculation-intensive", "Formula-based"],
+    "avg_time_to_solve": 150
+  },
+  {
+    "id": 4,
+    "shortcut": "Use the identity $sec^{-1}x + cosec^{-1}x = \\pi/2$. Let $a = sec^{-1}x$, so the expression becomes a quadratic in 'a', $f(a) = 16(2a^2 - \\pi a + \\pi^2/4)$. Find the minimum at the vertex and check the boundaries of the domain $[0, \\pi]$ for the maximum.",
+    "question": "Using the principal values of the inverse trigonometric functions the sum of the maximum and the minimum values of $16((\\sec^{-1}x)^{2}+(\\csc^{-1}x)^{2})$ is:",
+    "equation": "$16((\\sec^{-1}x)^{2}+(\\csc^{-1}x)^{2})$",
+    "imageurl": null,
+    "options": {
+      "A": "$24\\pi^{2}$",
+      "B": "$18\\pi^{2}$",
+      "C": "$31\\pi^{2}$",
+      "D": "$22\\pi^{2}$"
+    },
+    "correct_option": "D",
+    "difficulty_level": "Medium",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "Let the given expression be $E = 16((\\sec^{-1}x)^2 + (\\csc^{-1}x)^2)$.\nWe use the identity $\\sec^{-1}x + \\csc^{-1}x = \\pi/2$, which is valid for $x \\in (-\\infty, -1] \\cup [1, \\infty)$.\nThe principal value range of $\\sec^{-1}x$ is $[0, \\pi] - \\{\\pi/2\\}$.\nLet $a = \\sec^{-1}x$. Then $\\csc^{-1}x = \\pi/2 - a$.\nSubstitute this into the expression:\n$E(a) = 16(a^2 + (\\pi/2 - a)^2) = 16(a^2 + \\pi^2/4 - \\pi a + a^2) = 16(2a^2 - \\pi a + \\pi^2/4)$.\nThis is an upward-opening parabola in 'a'. The minimum value occurs at the vertex, where $a = -b/(2a') = -(-\\pi)/(2 \\times 2) = \\pi/4$. This value is in the range $[0, \\pi]$.\n$E_{min} = E(\\pi/4) = 16(2(\\pi/4)^2 - \\pi(\\pi/4) + \\pi^2/4) = 16(\\pi^2/8 - \\pi^2/4 + \\pi^2/4) = 16(\\pi^2/8) = 2\\pi^2$.\nThe maximum value occurs at the endpoints of the domain of 'a', which is $[0, \\pi]$.\nAt $a=0$: $E(0) = 16(2(0)^2 - \\pi(0) + \\pi^2/4) = 4\\pi^2$.\nAt $a=\\pi$: $E(\\pi) = 16(2\\pi^2 - \\pi^2 + \\pi^2/4) = 16(\\pi^2 + \\pi^2/4) = 16(5\\pi^2/4) = 20\\pi^2$.\nComparing the values, the maximum is $20\\pi^2$.\nThe sum of maximum and minimum values is $E_{max} + E_{min} = 20\\pi^2 + 2\\pi^2 = 22\\pi^2$.",
+    "imagesolurl": null,
+    "subject": "Mathematics",
+    "topic": "Inverse Trigonometric Functions",
+    "subtopics": [
+      "Properties of Inverse Functions",
+      "Quadratic Functions",
+      "Maxima and Minima"
+    ],
+    "question_type": ["Formula-based", "Calculation-intensive"],
+    "avg_time_to_solve": 160
+  },
+  {
+    "id": 5,
+    "shortcut": "Apply Gauss's Law ($phi = Q_{in}/\\epsilon_0$). A charge on an edge of a cube is shared by 4 cubes. Therefore, only 1/4th of the total charge of the line segment is enclosed within the given cube.",
+    "question": "A line charge of length 'a/2' is kept at the center of an edge BC of a cube ABCDEFGH having edge length 'a' as shown in the figure. If the density of line is $\\lambda$ per unit length, then the total electric flux through all the faces of the cube will be (Take, $\\epsilon_0$ as the free space permittivity)",
+    "equation": "$\\phi = \\frac{q_{in}}{\\epsilon_{0}}$",
+    "imageurl": "https://storage.googleapis.com/sarals-prod-files/13629-JEE-Main-2025-Question-Paper-with-Solution-22-Jan-Shift-1-PDF.pdf-8-3.png",
+    "options": {
+      "A": "$\\frac{\\lambda a}{8\\epsilon_{0}}$",
+      "B": "$\\frac{\\lambda a}{16\\epsilon_{0}}$",
+      "C": "$\\frac{\\lambda a}{2\\epsilon_{0}}$",
+      "D": "$\\frac{\\lambda a}{4\\epsilon_{0}}$"
+    },
+    "correct_option": "A",
+    "difficulty_level": "Easy",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "According to Gauss's Law, the total electric flux $\\phi$ through a closed surface is equal to the net charge enclosed ($Q_{in}$) by the surface, divided by the permittivity of free space ($\\epsilon_0$). The formula is $\\phi = \\frac{Q_{in}}{\\epsilon_0}$.\nThe total charge on the line segment is $Q_{total} = \\text{linear charge density} \\times \\text{length} = \\lambda \\times \\frac{a}{2} = \\frac{\\lambda a}{2}$.\nThe line charge is placed on the edge BC of the cube. An edge of a cube is shared by four cubes if we imagine space to be filled with identical cubes. By symmetry, the charge is distributed equally among these four cubes. Therefore, the charge enclosed within the single given cube is one-fourth of the total charge.\n$Q_{in} = \\frac{1}{4} \\times Q_{total} = \\frac{1}{4} \\times (\\frac{\\lambda a}{2}) = \\frac{\\lambda a}{8}$.\nNow, we can calculate the total electric flux through all the faces of the cube using Gauss's Law:\n$\\phi = \\frac{Q_{in}}{\\epsilon_0} = \\frac{\\lambda a/8}{\\epsilon_0} = \\frac{\\lambda a}{8\\epsilon_0}$.",
+    "imagesolurl": null,
+    "subject": "Physics",
+    "topic": "Electrostatics",
+    "subtopics": [
+      "Gauss's Law",
+      "Electric Flux",
+      "Charge Distribution",
+      "Symmetry"
+    ],
+    "question_type": ["Conceptual", "Formula-based", "Diagram-based"],
+    "avg_time_to_solve": 90
+  },
+  {
+    "id": 6,
+    "shortcut": "List all 8 outcomes of three coin tosses. Count the instances of 'HT' for each outcome to find the value of the random variable X. Create the probability distribution table for X and then use the standard formulas: Mean $\\mu = \\sum x_i p_i$ and Variance $\\sigma^2 = (\\sum x_i^2 p_i) - \\mu^2$.",
+    "question": "A coin is tossed three times. Let X denote the number of times a tail follows a head. If $\\mu$ and $\\sigma^{2}$ denote the mean and variance of X, then the value of $64(\\mu+\\sigma^{2})$ is :",
+    "equation": "$64(\\mu+\\sigma^{2})$",
+    "imageurl": null,
+    "options": {
+      "A": "51",
+      "B": "48",
+      "C": "32",
+      "D": "64"
+    },
+    "correct_option": "B",
+    "difficulty_level": "Medium",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "First, we list the 8 possible outcomes from tossing a coin three times and determine the value of X (number of times a tail follows a head) for each outcome.\n- HHH: No 'HT' sequence. X = 0.\n- HHT: One 'HT' sequence. X = 1.\n- HTH: One 'HT' sequence. X = 1.\n- HTT: One 'HT' sequence. X = 1.\n- THH: No 'HT' sequence. X = 0.\n- THT: One 'HT' sequence. X = 1.\n- TTH: No 'HT' sequence. X = 0.\n- TTT: No 'HT' sequence. X = 0.\n\nFrom this, we can construct the probability distribution for X:\n- The value X=0 occurs for {HHH, THH, TTH, TTT}. So, P(X=0) = 4/8 = 1/2.\n- The value X=1 occurs for {HHT, HTH, HTT, THT}. So, P(X=1) = 4/8 = 1/2.\n- X cannot take any other values.\n\nNow, we calculate the mean ($\\mu$) of X:\n$\\mu = \\sum x_i p(x_i) = (0 \\times \\frac{1}{2}) + (1 \\times \\frac{1}{2}) = \\frac{1}{2}$.\n\nNext, we calculate the variance ($\\sigma^2$) of X:\n$\\sigma^2 = \\sum x_i^2 p(x_i) - \\mu^2 = ((0^2 \\times \\frac{1}{2}) + (1^2 \\times \\frac{1}{2})) - (\\frac{1}{2})^2$\n$\\sigma^2 = (0 + \\frac{1}{2}) - \\frac{1}{4} = \\frac{1}{2} - \\frac{1}{4} = \\frac{1}{4}$.\n\nFinally, we calculate the required value:\n$64(\\mu+\\sigma^{2}) = 64(\\frac{1}{2} + \\frac{1}{4}) = 64(\\frac{3}{4}) = 16 \\times 3 = 48$.",
+    "imagesolurl": null,
+    "subject": "Mathematics",
+    "topic": "Probability and Statistics",
+    "subtopics": [
+      "Random Variables",
+      "Probability Distribution",
+      "Mean",
+      "Variance"
+    ],
+    "question_type": ["Calculation-intensive", "Conceptual"],
+    "avg_time_to_solve": 150
+  },
+  {
+    "id": 7,
+    "shortcut": "For a GP, the product of terms equidistant from the center is constant: $a_1 a_5 = a_2 a_4 = 28$. Use this with the given sum $a_2+a_4=29$ to form a quadratic equation $t^2 - 29t + 28 = 0$ with roots $a_2$ and $a_4$. Solve for the terms and find $a_6$.",
+    "question": "Let $a_{1}, a_{2}, a_{3}...$ be a G.P. of increasing positive terms. If $a_{1}a_{5}=28$ and $a_{2}+a_{4}=29,$ then $a_{6}$ is equal to:",
+    "equation": "$a_{1}a_{5}=28, a_{2}+a_{4}=29$",
+    "imageurl": null,
+    "options": {
+      "A": "628",
+      "B": "526",
+      "C": "784",
+      "D": "812"
+    },
+    "correct_option": "C",
+    "difficulty_level": "Medium",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "Let the geometric progression (GP) have the first term 'a' and a common ratio 'r'.\nFrom the properties of a GP, the product of terms equidistant from the beginning and end is constant. Therefore, $a_1 a_5 = a_2 a_4$.\nWe are given $a_1 a_5 = 28$, so $a_2 a_4 = 28$.\nWe are also given $a_2 + a_4 = 29$.\nWe now have a system of two equations for $a_2$ and $a_4$:\n1) $a_2 + a_4 = 29$\n2) $a_2 a_4 = 28$\nWe can form a quadratic equation whose roots are $a_2$ and $a_4$: $t^2 - (\\text{sum of roots})t + (\\text{product of roots}) = 0$.\n$t^2 - 29t + 28 = 0$.\nFactoring the quadratic equation: $(t - 1)(t - 28) = 0$.\nSo, the roots are $t = 1$ and $t = 28$. This means the pair ${a_2, a_4}$ is ${1, 28}$.\nSince the GP is of 'increasing positive terms', we must have $a_2 < a_4$. Thus, $a_2 = 1$ and $a_4 = 28$.\nLet's find the common ratio 'r'. We know $a_4 = a_2 r^2$.\n$28 = 1 \\cdot r^2 \\Rightarrow r^2 = 28$.\nWe need to find $a_6$. We can write $a_6$ in terms of $a_4$:\n$a_6 = a_4 r^2 = 28 \\times 28 = 784$.",
+    "imagesolurl": null,
+    "subject": "Mathematics",
+    "topic": "Sequences and Series",
+    "subtopics": [
+      "Geometric Progression (GP)",
+      "Properties of GP",
+      "Solving Equations"
+    ],
+    "question_type": ["Calculation-intensive", "Formula-based"],
+    "avg_time_to_solve": 120
+  },
+  {
+    "id": 8,
+    "shortcut": "The circuit simplifies to a $0.5\\Omega$ resistor in series with a parallel combination of another $0.5\\Omega$ resistor and a $2\\Omega$ resistor. Quickly calculate the equivalent resistance and apply Ohm's law ($I=V/R_{eq}$).",
+    "question": "Sliding contact of a potentiometer is in the middle of the potentiometer wire having resistance $R_p=1\\Omega$ as shown in the figure. An external resistance of $R_c=2\\Omega$ is connected via the sliding contact. The total current drawn from the battery is:",
+    "equation": "$R_p=1\\Omega, R_c=2\\Omega$",
+    "imageurl": "https://res.cloudinary.com/dkdidynja/image/upload/v1754885521/Screenshot_2025-08-11_at_9.41.53_AM_wcuj7s.png",
+    "options": {
+      "A": "0.3 A",
+      "B": "1.35 A",
+      "C": "1.0 A",
+      "D": "0.9 A"
+    },
+    "correct_option": "C",
+    "difficulty_level": "Easy",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "The problem describes a circuit where a potentiometer wire of total resistance $R_p = 1\\Omega$ is connected to a $0.9V$ battery. A sliding contact is at the middle of the wire, and an external resistor $R_c = 2\\Omega$ is connected from this contact to the negative terminal of the battery.\n1.  **Divide the Potentiometer Wire**: Since the contact is in the middle, the wire is split into two sections of equal resistance: $R_1 = R_2 = R_p/2 = 1\\Omega/2 = 0.5\\Omega$.\n2.  **Analyze the Circuit Configuration**: The first section ($R_1 = 0.5\\Omega$) is in series with the rest of the circuit. The second section ($R_2 = 0.5\\Omega$) is in parallel with the external resistor ($R_c = 2\\Omega$).\n3.  **Calculate Parallel Resistance**: Find the equivalent resistance ($R_{parallel}$) of the parallel combination of $R_2$ and $R_c$.\n    $R_{parallel} = \\frac{R_2 \\times R_c}{R_2 + R_c} = \\frac{0.5 \\times 2}{0.5 + 2} = \\frac{1}{2.5} = 0.4\\Omega$.\n4.  **Calculate Total Equivalent Resistance**: The total equivalent resistance ($R_{eq}$) of the circuit is the sum of the series resistor $R_1$ and the parallel part $R_{parallel}$.\n    $R_{eq} = R_1 + R_{parallel} = 0.5\\Omega + 0.4\\Omega = 0.9\\Omega$.\n5.  **Calculate Total Current**: Using Ohm's Law, the total current (i) drawn from the battery is:\n    $i = \\frac{V}{R_{eq}} = \\frac{0.9V}{0.9\\Omega} = 1.0 A$.",
+    "imagesolurl": "https://res.cloudinary.com/dkdidynja/image/upload/v1754885521/Screenshot_2025-08-11_at_9.41.53_AM_wcuj7s.png",
+    "subject": "Physics",
+    "topic": "Current Electricity",
+    "subtopics": [
+      "Equivalent Resistance",
+      "Series and Parallel Circuits",
+      "Ohm's Law",
+      "Potentiometer"
+    ],
+    "question_type": [
+      "Calculation-intensive",
+      "Diagram-based",
+      "Formula-based"
+    ],
+    "avg_time_to_solve": 90
+  },
+  {
+    "id": 9,
+    "shortcut": "Fringe width is directly proportional to wavelength ($\\beta \\propto \\lambda$). In a denser medium, wavelength decreases ($\\lambda_{med} = \\lambda_{air}/\\mu$). This means fringe width decreases, so fringes get closer. The reason (change in speed and wavelength) directly explains the assertion.",
+    "question": "Given below are two statements: one is labelled as Assertion (A) and the other is labelled as Reason (R).\n**Assertion (A):** If Young's double slit experiment is performed in an optically denser medium than air, then the consecutive fringes come closer.\n**Reason (R):** The speed of light reduces in an optically denser medium than air while its frequency does not change.\nIn the light of the above statements, choose the most appropriate answer from the options given below:",
+    "equation": null,
+    "imageurl": null,
+    "options": {
+      "A": "Both (A) and (R) are true and (R) is the correct explanation of (A)",
+      "B": "(A) is false but (R) is true.",
+      "C": "Both (A) and (R) are true but (R) is not the correct explanation of (A)",
+      "D": "(A) is true but (R) is false."
+    },
+    "correct_option": "A",
+    "difficulty_level": "Easy",
+    "examname": "JEE Main 2025 - 22 Jan Shift 1",
+    "solution": "### Analysis of Assertion (A)\nThe fringe width (distance between consecutive bright or dark fringes) in a Young's double-slit experiment (YDSE) is given by the formula $\\beta = \\frac{\\lambda D}{d}$. Here, $\\lambda$ is the wavelength of the light, D is the distance from the slits to the screen, and d is the distance between the slits.\nWhen the entire apparatus is immersed in an optically denser medium with a refractive index $\\mu > 1$, the wavelength of light in that medium changes to $\\lambda_{medium} = \\frac{\\lambda_{air}}{\\mu}$.\nSince $\\mu > 1$, the wavelength in the medium is less than in air ($\\lambda_{medium} < \\lambda_{air}$).\nThe new fringe width will be $\\beta_{medium} = \\frac{\\lambda_{medium} D}{d} = \\frac{\\lambda_{air} D}{\\mu d} = \\frac{\\beta_{air}}{\\mu}$.\nAs $\\mu > 1$, the fringe width decreases ($\\beta_{medium} < \\beta_{air}$), meaning the fringes come closer together. Thus, **Assertion (A) is true**.\n\n### Analysis of Reason (R)\nWhen light travels from a rarer medium (like air) to an optically denser medium, its speed decreases. The refractive index ($\\mu$) is defined by the ratio of the speed of light in vacuum (c) to its speed in the medium (v), i.e., $\\mu = c/v$. The frequency of a light wave is determined by its source and does not change when the medium changes. Since the wave speed is related to frequency (f) and wavelength ($\\lambda$) by $v = f\\lambda$, if v decreases and f remains constant, the wavelength $\\lambda$ must also decrease. Thus, **Reason (R) is true**.\n\n### Conclusion\nThe Reason (R) provides the correct physical explanation for why the wavelength of light decreases in a denser medium. This decrease in wavelength is the direct cause of the decrease in fringe width mentioned in the Assertion (A). Therefore, **both (A) and (R) are true, and (R) is the correct explanation of (A)**.",
+    "imagesolurl": null,
+    "subject": "Physics",
+    "topic": "Wave Optics",
+    "subtopics": [
+      "Young's Double Slit Experiment (YDSE)",
+      "Fringe Width",
+      "Refractive Index",
+      "Properties of Light Waves"
+    ],
+    "question_type": ["Conceptual", "Assertion-Reason"],
+    "avg_time_to_solve": 75
+  }
+]

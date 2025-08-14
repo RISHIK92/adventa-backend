@@ -30,6 +30,8 @@ model User {
   examSummaries       UserExamOverallSummary[]
   testInstances       UserTestInstanceSummary[]
   UserTestAnswer      UserTestAnswer[]
+
+  UserTopicPerformance UserTopicPerformance[]
 }
 
 model Exam {
@@ -67,10 +69,12 @@ model Topic {
   name      String // e.g., 'Rotational Motion', 'Organic Chemistry'
 
   // --- Relationships ---
+  userPerformance     UserTopicPerformance[]
   subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   subtopics Subtopic[]
 
   @@unique([subjectId, name])
+  TestTopicSnapshot TestTopicSnapshot[]
 }
 
 model Subtopic {
@@ -83,6 +87,7 @@ model Subtopic {
   userPerformance UserSubtopicPerformance[]
 
   @@unique([topicId, name])
+  testSubtopicSnapshots TestSubtopicSnapshot[]
 }
 
 model Question {
@@ -115,7 +120,47 @@ model Question {
   // --- Relationships ---
   subtopic       Subtopic         @relation(fields: [subtopicId], references: [id])
   UserTestAnswer UserTestAnswer[]
+  testInstances TestInstanceQuestion[]
 }
+
+model TestInstanceQuestion {
+  id             String @id @default(cuid())
+  testInstanceId String
+  questionId     Int
+  order          Int // To maintain the question order
+
+  testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id])
+  question     Question              @relation(fields: [questionId], references: [id])
+
+  @@unique([testInstanceId, questionId])
+  @@index([testInstanceId])
+}
+
+model UserTopicPerformance {
+  userId  String
+  topicId Int
+
+  // Performance Metrics (aggregated from subtopics)
+  totalAttempted    Int @default(0)
+  totalCorrect      Int @default(0)
+  totalIncorrect    Int @default(0)
+  totalTimeTakenSec Int @default(0)
+
+  // Derived Fields for fast queries
+  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
+  avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
+
+  // Timestamps
+  lastUpdatedAt DateTime @updatedAt
+
+  // --- Relationships & Indexes ---
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([userId, topicId]) // Composite Primary Key
+  @@index([userId, accuracyPercent])
+}
+
 
 model UserSubtopicPerformance {
   userId     String
@@ -141,6 +186,39 @@ model UserSubtopicPerformance {
   @@id([userId, subtopicId]) // Composite Primary Key
   @@index([userId, accuracyPercent]) // For fast lookups of a user's weakest topics
 }
+
+model TestTopicSnapshot {
+  id                String   @id @default(uuid())
+  testInstanceId    String
+  topicId           Int
+  
+  // The user's performance METRICS AT THE MOMENT OF TEST CREATION
+  accuracyPercentBefore Decimal @db.Decimal(5, 2)
+  totalAttemptedBefore  Int
+  
+  // --- Relationships ---
+  testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
+  topic        Topic                   @relation(fields: [topicId], references: [id])
+  
+  @@unique([testInstanceId, topicId])
+}
+
+model TestSubtopicSnapshot {
+  id                String   @id @default(uuid())
+  testInstanceId    String
+  subtopicId        Int
+  
+  // The user's performance METRICS AT THE MOMENT OF TEST CREATION
+  accuracyPercentBefore Decimal @db.Decimal(5, 2)
+  totalAttemptedBefore  Int
+  
+  // --- Relationships ---
+  testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
+  subtopic     Subtopic                @relation(fields: [subtopicId], references: [id])
+  
+  @@unique([testInstanceId, subtopicId]) // Ensure one snapshot per subtopic per test
+}
+
 
 model UserExamOverallSummary {
   userId String
@@ -182,14 +260,17 @@ model UserTestInstanceSummary {
   numUnattempted Int
   timeTakenSec   Int
 
-  completedAt DateTime @default(now())
+  completedAt        DateTime?
   
   exam Exam @relation(fields: [examId], references: [id])
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   answers UserTestAnswer[]
+  testQuestions TestInstanceQuestion[]
 
   @@index([userId, completedAt(sort: Desc)])
+  topicSnapshots      TestTopicSnapshot[]
+  subtopicSnapshots TestSubtopicSnapshot[]
 }
 
 model UserTestAnswer {

@@ -31,6 +31,8 @@
     // "noUnusedParameters": true,
     // "noFallthroughCasesInSwitch": true,
     // "noPropertyAccessFromIndexSignature": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
 
     // Recommended Options
     "strict": true,
