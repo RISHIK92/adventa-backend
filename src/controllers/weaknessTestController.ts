@@ -4,6 +4,7 @@ import { prisma } from "../services/db.js";
 import {
   AnswerStatus,
   Prisma,
+  DifficultyLevel,
   type Question,
   type UserSubtopicPerformance,
   type UserTestInstanceSummary,
@@ -11,6 +12,7 @@ import {
 } from "@prisma/client";
 import { getTopicAccuracyComparisonData } from "../utils/getAccuracyComparisonData.js";
 import { generateWeaknessPrompt } from "../ai/prompts/weaknessPrompt.js";
+import { redisClient } from "../config/redis.js";
 
 const router = Router();
 
@@ -58,7 +60,7 @@ const getAvailableExams = async (req: Request, res: Response) => {
 const getWeakestTopics = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
-    const { examId } = req.query;
+    const { examId } = req.params;
 
     if (!uid) return res.status(401).json({ error: "User not authenticated" });
     if (!examId) return res.status(400).json({ error: "Exam ID is required" });
@@ -68,11 +70,11 @@ const getWeakestTopics = async (req: Request, res: Response) => {
     });
     if (!exam) return res.status(404).json({ error: "Exam not found" });
 
-    // Fetch the 15 weakest TOPICS with at least 5 attempts
+    // Fetch the 6 weakest TOPICS with at least 3 attempts
     const weakestTopics = await prisma.userTopicPerformance.findMany({
       where: {
         userId: uid,
-        totalAttempted: { gte: 5 },
+        totalAttempted: { gte: 3 },
         topic: { subject: { examId: exam.id } },
       },
       select: {
@@ -90,14 +92,12 @@ const getWeakestTopics = async (req: Request, res: Response) => {
     });
 
     if (weakestTopics.length < 2) {
-      // Need at least 2 weak topics
       return res.status(400).json({
         error:
           "Not enough performance data to generate a weakness test. Practice more topics in this exam.",
       });
     }
 
-    // Group by subjects
     const subjectGroups: {
       [key: string]: { topicId: number; topicName: string; accuracy: number }[];
     } = {};
@@ -115,8 +115,8 @@ const getWeakestTopics = async (req: Request, res: Response) => {
       (sum, topics) => sum + topics.length,
       0
     );
-    // Estimate: ~4 questions per weak topic
-    const expectedQuestions = totalTopicsForTest * 4;
+    // Estimate: ~3 questions per weak topic
+    const expectedQuestions = totalTopicsForTest * 3;
 
     res.json({
       success: true,
@@ -146,35 +146,33 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) return res.status(404).json({ error: "Exam not found" });
 
-    // 1. Find all weak topics for the user in this exam
+    // === STEP 1: Find the 2 weakest topics per subject (based on overall accuracy) ===
     const allUserTopicPerformance = await prisma.userTopicPerformance.findMany({
       where: {
         userId: uid,
-        totalAttempted: { gte: 10 },
+        totalAttempted: { gte: 3 },
         topic: { subject: { examId: exam.id } },
+      },
+      include: {
+        topic: { include: { subject: true } },
       },
       orderBy: { accuracyPercent: "asc" },
     });
 
-    // 2. Group these topics by subject
-    const topicsBySubject = new Map<number, typeof allUserTopicPerformance>();
-    allUserTopicPerformance.forEach((perf: any) => {
-      const subjectId = perf.topic.subjectId;
-      if (!topicsBySubject.has(subjectId)) {
-        topicsBySubject.set(subjectId, []);
-      }
-      topicsBySubject.get(subjectId)?.push(perf);
-    });
+    const topicsBySubject = allUserTopicPerformance.reduce((acc, perf) => {
+      const subjectId = perf.topic.subject.id;
+      if (!acc[subjectId]) acc[subjectId] = [];
+      acc[subjectId].push(perf);
+      return acc;
+    }, {} as Record<number, typeof allUserTopicPerformance>);
 
-    // 3. Select the top 1 or 2 weakest topics from each subject
     const selectedTopicsForTest: {
       topicId: number;
       accuracyPercentBefore: number;
       totalAttemptedBefore: number;
     }[] = [];
-    topicsBySubject.forEach((performancesInSubject) => {
-      // Take the top 2 weakest topics from each subject, max
-      const topWeakestTopics = performancesInSubject.slice(0, 2);
+    Object.values(topicsBySubject).forEach((performancesInSubject) => {
+      const topWeakestTopics = performancesInSubject.slice(0, 2); // Take top 2
       topWeakestTopics.forEach((perf) => {
         selectedTopicsForTest.push({
           topicId: perf.topicId,
@@ -186,54 +184,109 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
 
     if (selectedTopicsForTest.length === 0) {
       return res.status(400).json({
-        error: "Not enough data to generate a weakness test.",
+        error: "Not enough performance data to generate a weakness test.",
       });
     }
 
-    // 4. For each selected weak topic, find its 2-3 weakest subtopics
     const selectedTopicIds = selectedTopicsForTest.map((t) => t.topicId);
-    const weakSubtopicsWithinTopics =
-      await prisma.userSubtopicPerformance.findMany({
+
+    // === STEP 2: Fetch the difficulty breakdown for these selected weak topics ===
+    const difficultyPerformances =
+      await prisma.userTopicDifficultyPerformance.findMany({
         where: {
           userId: uid,
-          subtopic: { topicId: { in: selectedTopicIds } },
+          topicId: { in: selectedTopicIds },
         },
-        orderBy: { accuracyPercent: "asc" },
       });
 
-    const subtopicsToQuery = new Map<number, number[]>(); // Map<topicId, subtopicId[]>
-    selectedTopicIds.forEach((topicId) => {
-      const subtopicsInTopic = weakSubtopicsWithinTopics
-        .filter((sub: any) => sub.subtopic.topicId === topicId)
-        .slice(0, 3); // Take the 3 weakest subtopics from the weak topic
-      if (subtopicsInTopic.length > 0) {
-        subtopicsToQuery.set(
-          topicId,
-          subtopicsInTopic.map((s) => s.subtopicId)
-        );
+    // === STEP 3: Determine the question strategy for each topic ===
+    const questionStrategyByTopic = new Map<
+      number,
+      Record<DifficultyLevel, number>
+    >();
+    const difficultyOrder: DifficultyLevel[] = [
+      DifficultyLevel.Easy,
+      DifficultyLevel.Medium,
+      DifficultyLevel.Hard,
+    ];
+
+    for (const topicId of selectedTopicIds) {
+      const perfsForTopic = difficultyPerformances.filter(
+        (p) => p.topicId === topicId
+      );
+      const accuracies = new Map<DifficultyLevel, number>();
+      perfsForTopic.forEach((p) =>
+        accuracies.set(p.difficultyLevel, Number(p.accuracyPercent))
+      );
+
+      // Sort the difficulties by the user's accuracy in them, from weakest to strongest.
+      const sortedDifficulties = [...difficultyOrder].sort((a, b) => {
+        const accA = accuracies.get(a) ?? 101;
+        const accB = accuracies.get(b) ?? 101;
+        return accA - accB;
+      });
+
+      const [weakest, middle, strongest] = sortedDifficulties;
+
+      // The strategy is: 2 questions from their weakest difficulty, 1 from their next weakest.
+      const strategy: Record<DifficultyLevel, number> = {
+        Easy: 0,
+        Medium: 0,
+        Hard: 0,
+        Elite: 0,
+      };
+      {
+        if (weakest) {
+          strategy[weakest] = (strategy[weakest] || 0) + 2;
+        }
+        if (middle) {
+          strategy[middle] = (strategy[middle] || 0) + 1;
+        }
       }
-    });
 
-    // 5. Fetch candidate questions from these weakest subtopics
-    const subtopicIdsToFetch = Array.from(subtopicsToQuery.values()).flat();
-    const candidateQuestions = await prisma.question.findMany({
-      where: { subtopicId: { in: subtopicIdsToFetch } },
-    });
+      questionStrategyByTopic.set(topicId, strategy);
+    }
 
-    // 6. Assemble the test: 2 questions per subtopic
-    let allQuestionsForTest: Question[] = [];
-    subtopicsToQuery.forEach((subtopicIds, topicId) => {
-      subtopicIds.forEach((subtopicId) => {
-        const questionsInSubtopic = candidateQuestions.filter(
-          (q) => q.subtopicId === subtopicId
-        );
-        const shuffled = questionsInSubtopic.sort(() => 0.5 - Math.random());
-        allQuestionsForTest.push(...shuffled.slice(0, 2)); // 2 questions per weak subtopic
+    // === STEP 4: Build a dynamic query to fetch all candidate questions at once ===
+    const queryConditions: Prisma.QuestionWhereInput[] = [];
+    for (const [topicId, strategy] of questionStrategyByTopic.entries()) {
+      for (const [difficulty, count] of Object.entries(strategy)) {
+        if (count > 0) {
+          queryConditions.push({
+            subtopic: { topicId: topicId },
+            humanDifficultyLevel: difficulty as DifficultyLevel,
+          });
+        }
+      }
+    }
+
+    if (queryConditions.length === 0) {
+      return res.status(400).json({
+        error: "Could not determine a question strategy for your weaknesses.",
       });
+    }
+
+    const candidateQuestions = await prisma.question.findMany({
+      where: { OR: queryConditions },
     });
+
+    // === STEP 5: Assemble the final test according to the strategy ===
+    let allQuestionsForTest: Question[] = [];
+    for (const [topicId, strategy] of questionStrategyByTopic.entries()) {
+      for (const [difficulty, count] of Object.entries(strategy)) {
+        if (count > 0) {
+          const questionsInBucket = candidateQuestions.filter(
+            (q: any) =>
+              q.subtopic.topicId === topicId &&
+              q.humanDifficultyLevel === difficulty
+          );
+          const shuffled = questionsInBucket.sort(() => 0.5 - Math.random());
+          allQuestionsForTest.push(...shuffled.slice(0, count));
+        }
+      }
+    }
 
     if (allQuestionsForTest.length < 5) {
-      // Ensure a meaningful test length
       return res.status(400).json({
         error: "Could not find enough unique questions for your weak areas.",
       });
@@ -241,9 +294,9 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
 
     allQuestionsForTest = [...new Set(allQuestionsForTest)].sort(
       () => 0.5 - Math.random()
-    ); // Shuffle final list
+    );
 
-    // 7. Create the test instance and snapshots in a transaction
+    // === STEP 6: Create the test instance in a transaction (No changes here) ===
     const totalQuestionsInTest = allQuestionsForTest.length;
     let testInstance: UserTestInstanceSummary | undefined;
 
@@ -252,7 +305,7 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
         data: {
           userId: uid,
           examId: exam.id,
-          testName: `${exam.name} - Topic Weakness Test`,
+          testName: `${exam.name} - Targeted Weakness Test`,
           testType: "weakness",
           score: 0,
           totalMarks: totalQuestionsInTest * exam.marksPerCorrect,
@@ -264,7 +317,6 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
         },
       });
 
-      // Link questions to the test
       await tx.testInstanceQuestion.createMany({
         data: allQuestionsForTest.map((q, index) => ({
           testInstanceId: testInstance!.id,
@@ -273,7 +325,6 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
         })),
       });
 
-      // Create TOPIC snapshots
       await tx.testTopicSnapshot.createMany({
         data: selectedTopicsForTest.map((p) => ({
           testInstanceId: testInstance!.id,
@@ -297,7 +348,7 @@ const generateWeaknessTest = async (req: Request, res: Response) => {
  * ROUTE: GET /weakness/test/:testInstanceId
  * Securely fetches the data required to take a specific test.
  */
-export const getTestDataForTaking = async (req: Request, res: Response) => {
+const getTestDataForTaking = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
     const { testInstanceId } = req.params;
@@ -391,10 +442,6 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
     const { testInstanceId } = req.params;
-    const { answers, timeTakenSec } = req.body as {
-      answers: AnswerPayload[];
-      timeTakenSec: number;
-    };
 
     // --- PHASE 1: VALIDATION & PRE-CHECKS ---
     if (!uid) {
@@ -402,11 +449,33 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
         .status(401)
         .json({ success: false, error: "User not authenticated" });
     }
-    if (!testInstanceId || !answers || !Array.isArray(answers)) {
+    if (!testInstanceId) {
       return res
         .status(400)
         .json({ success: false, error: "Invalid request payload." });
     }
+
+    const redisKey = `progress:${testInstanceId}`;
+    const savedProgress = await redisClient.hGetAll(redisKey);
+
+    if (Object.keys(savedProgress).length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: "No progress found to submit." });
+    }
+
+    const totalTimeTakenSec = parseFloat(savedProgress._totalTime || "0");
+
+    delete savedProgress._totalTime;
+
+    const answers = Object.entries(savedProgress).map(([questionId, data]) => {
+      const { answer, time } = JSON.parse(data);
+      return {
+        questionId: Number(questionId),
+        userAnswer: answer,
+        timeTaken: Math.round(time),
+      };
+    });
 
     const testInstance = await prisma.userTestInstanceSummary.findUnique({
       where: { id: testInstanceId, userId: uid },
@@ -420,6 +489,7 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
       });
     }
     if (testInstance.completedAt) {
+      await redisClient.del(redisKey);
       return res.status(403).json({
         success: false,
         error: "This test has already been submitted.",
@@ -432,55 +502,43 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
 
     const questions = await prisma.question.findMany({
       where: { id: { in: questionIds } },
-      include: { subtopic: { select: { topicId: true } } }, // Get topicId for each question
+      include: { subtopic: { select: { topicId: true } } },
     });
-    const questionsMap = new Map<number, (typeof questions)[0]>(
-      questions.map((q) => [q.id, q])
-    );
+    const questionsMap = new Map(questions.map((q) => [q.id, q]));
 
-    // Get all unique subtopic and topic IDs involved in this submission
-    const subtopicIds = [...new Set(questions.map((q) => q.subtopicId))];
     const topicIds = [...new Set(questions.map((q) => q.subtopic.topicId))];
 
-    // Fetch current performance for all affected entities in parallel
-    const [currentSubtopicPerfs, currentTopicPerfs] = await Promise.all([
-      prisma.userSubtopicPerformance.findMany({
-        where: { userId: uid, subtopicId: { in: subtopicIds } },
-      }),
+    const [currentTopicPerfs, currentTopicDifficultyPerfs] = await Promise.all([
       prisma.userTopicPerformance.findMany({
+        where: { userId: uid, topicId: { in: topicIds } },
+      }),
+      prisma.userTopicDifficultyPerformance.findMany({
         where: { userId: uid, topicId: { in: topicIds } },
       }),
     ]);
 
-    const subtopicPerfMap = new Map<number, UserSubtopicPerformance>(
-      currentSubtopicPerfs.map((p) => [p.subtopicId, p])
-    );
-    const topicPerfMap = new Map<number, UserTopicPerformance>(
-      currentTopicPerfs.map((p) => [p.topicId, p])
+    const topicPerfMap = new Map(currentTopicPerfs.map((p) => [p.topicId, p]));
+    const topicDifficultyPerfMap = new Map(
+      currentTopicDifficultyPerfs.map((p) => [
+        `${p.topicId}-${p.difficultyLevel}`,
+        p,
+      ])
     );
 
     // --- PHASE 3: ANSWER PROCESSING & AGGREGATION ---
     let totalCorrect = 0;
     let totalIncorrect = 0;
-    const userTestAnswerPayloads: Prisma.UserTestAnswerCreateManyInput[] = [];
+    const userTestAnswerPayloads = [];
 
-    // Maps to aggregate performance changes before writing to DB
-    const subtopicUpdates = new Map<
-      number,
-      { attempted: number; correct: number; time: number }
-    >();
-    const topicUpdates = new Map<
-      number,
-      { attempted: number; correct: number; time: number }
-    >();
+    const topicUpdates = new Map();
+    const topicDifficultyUpdates = new Map();
 
     for (const answer of answers) {
       const question = questionsMap.get(answer.questionId);
-      if (!question || !question.subtopicId || !question.subtopic.topicId)
-        continue;
+      if (!question || !question.subtopic?.topicId) continue;
 
-      const subtopicId = question.subtopicId;
       const topicId = question.subtopic.topicId;
+      const difficultyLevel = question.humanDifficultyLevel;
       let isCorrect = false;
       let status: AnswerStatus = AnswerStatus.Unattempted;
       const userAnswer = answer.userAnswer?.trim() ?? null;
@@ -495,18 +553,6 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
 
         const time = answer.timeTaken || 0;
 
-        // Aggregate updates for subtopic
-        const subUpdate = subtopicUpdates.get(subtopicId) || {
-          attempted: 0,
-          correct: 0,
-          time: 0,
-        };
-        subUpdate.attempted++;
-        subUpdate.correct += isCorrect ? 1 : 0;
-        subUpdate.time += time;
-        subtopicUpdates.set(subtopicId, subUpdate);
-
-        // Aggregate updates for its parent topic
         const topUpdate = topicUpdates.get(topicId) || {
           attempted: 0,
           correct: 0,
@@ -516,6 +562,17 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
         topUpdate.correct += isCorrect ? 1 : 0;
         topUpdate.time += time;
         topicUpdates.set(topicId, topUpdate);
+
+        const difficultyKey = `${topicId}-${difficultyLevel}`;
+        const diffUpdate = topicDifficultyUpdates.get(difficultyKey) || {
+          attempted: 0,
+          correct: 0,
+          time: 0,
+        };
+        diffUpdate.attempted++;
+        diffUpdate.correct += isCorrect ? 1 : 0;
+        diffUpdate.time += time;
+        topicDifficultyUpdates.set(difficultyKey, diffUpdate);
       }
 
       userTestAnswerPayloads.push({
@@ -533,56 +590,14 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
     const totalUnattempted = testInstance.totalQuestions - totalAttempted;
 
     // --- PHASE 4: DATABASE TRANSACTION ---
-    const transactionPromises: Prisma.PrismaPromise<any>[] = [];
+    const transactionPromises = [];
 
-    // Promise 1: Create all UserTestAnswer records at once
+    // Promise 1: Create UserTestAnswer records
     transactionPromises.push(
       prisma.userTestAnswer.createMany({ data: userTestAnswerPayloads })
     );
 
-    // Promise 2: Upsert all UserSubtopicPerformance records
-    for (const [subtopicId, update] of subtopicUpdates.entries()) {
-      const currentPerf = subtopicPerfMap.get(subtopicId);
-      const newTotalAttempted =
-        (currentPerf?.totalAttempted || 0) + update.attempted;
-      const newTotalCorrect = (currentPerf?.totalCorrect || 0) + update.correct;
-      const newTotalTimeTaken =
-        (currentPerf?.totalTimeTakenSec || 0) + update.time;
-
-      transactionPromises.push(
-        prisma.userSubtopicPerformance.upsert({
-          where: { userId_subtopicId: { userId: uid, subtopicId } },
-          create: {
-            userId: uid,
-            subtopicId,
-            totalAttempted: update.attempted,
-            totalCorrect: update.correct,
-            totalIncorrect: update.attempted - update.correct,
-            totalTimeTakenSec: update.time,
-            accuracyPercent:
-              update.attempted > 0
-                ? (update.correct / update.attempted) * 100
-                : 0,
-            avgTimePerQuestionSec:
-              update.attempted > 0 ? update.time / update.attempted : 0,
-          },
-          update: {
-            totalAttempted: { increment: update.attempted },
-            totalCorrect: { increment: update.correct },
-            totalIncorrect: { increment: update.attempted - update.correct },
-            totalTimeTakenSec: { increment: update.time },
-            accuracyPercent:
-              newTotalAttempted > 0
-                ? (newTotalCorrect / newTotalAttempted) * 100
-                : 0,
-            avgTimePerQuestionSec:
-              newTotalAttempted > 0 ? newTotalTimeTaken / newTotalAttempted : 0,
-          },
-        })
-      );
-    }
-
-    // Promise 3: Upsert all UserTopicPerformance records
+    // Promise 2: Upsert UserTopicPerformance records (no change to this loop)
     for (const [topicId, update] of topicUpdates.entries()) {
       const currentPerf = topicPerfMap.get(topicId);
       const newTotalAttempted =
@@ -590,7 +605,6 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
       const newTotalCorrect = (currentPerf?.totalCorrect || 0) + update.correct;
       const newTotalTimeTaken =
         (currentPerf?.totalTimeTakenSec || 0) + update.time;
-
       transactionPromises.push(
         prisma.userTopicPerformance.upsert({
           where: { userId_topicId: { userId: uid, topicId } },
@@ -624,6 +638,55 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
       );
     }
 
+    for (const [key, update] of topicDifficultyUpdates.entries()) {
+      const [topicIdStr, difficultyLevel] = key.split("-");
+      const topicId = parseInt(topicIdStr);
+
+      const currentPerf = topicDifficultyPerfMap.get(key);
+      const newTotalAttempted =
+        (currentPerf?.totalAttempted || 0) + update.attempted;
+      const newTotalCorrect = (currentPerf?.totalCorrect || 0) + update.correct;
+      const newTotalTimeTaken =
+        (currentPerf?.totalTimeTakenSec || 0) + update.time;
+
+      transactionPromises.push(
+        prisma.userTopicDifficultyPerformance.upsert({
+          where: {
+            userId_topicId_difficultyLevel: {
+              userId: uid,
+              topicId,
+              difficultyLevel,
+            },
+          },
+          create: {
+            userId: uid,
+            topicId,
+            difficultyLevel,
+            totalAttempted: update.attempted,
+            totalCorrect: update.correct,
+            totalTimeTakenSec: update.time,
+            accuracyPercent:
+              update.attempted > 0
+                ? (update.correct / update.attempted) * 100
+                : 0,
+            avgTimePerQuestionSec:
+              update.attempted > 0 ? update.time / update.attempted : 0,
+          },
+          update: {
+            totalAttempted: { increment: update.attempted },
+            totalCorrect: { increment: update.correct },
+            totalTimeTakenSec: { increment: update.time },
+            accuracyPercent:
+              newTotalAttempted > 0
+                ? (newTotalCorrect / newTotalAttempted) * 100
+                : 0,
+            avgTimePerQuestionSec:
+              newTotalAttempted > 0 ? newTotalTimeTaken / newTotalAttempted : 0,
+          },
+        })
+      );
+    }
+
     // Promise 4: Update the final test summary
     const finalScore =
       totalCorrect * examBlueprint.marksPerCorrect -
@@ -636,14 +699,15 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
           numCorrect: totalCorrect,
           numIncorrect: totalIncorrect,
           numUnattempted: totalUnattempted,
-          timeTakenSec: timeTakenSec || 0,
+          timeTakenSec: Math.round(totalTimeTakenSec),
           completedAt: new Date(),
         },
       })
     );
 
-    // Execute all promises in a single transaction
     await prisma.$transaction(transactionPromises);
+
+    await redisClient.del(redisKey);
 
     // --- PHASE 5: RESPOND TO USER ---
     const accuracyPercent =
@@ -677,6 +741,44 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
   }
 };
 
+interface QuestionResult {
+  questionId: number;
+  question: string;
+  userAnswer: string | null;
+  correctOption: string;
+  solution: string;
+  isCorrect: boolean;
+  timeTakenSec: number;
+}
+
+interface SubtopicAnalysis {
+  totalQuestions: number;
+  correctAnswers: number;
+  accuracy: string;
+  questions: QuestionResult[];
+}
+
+interface TopicAnalysis {
+  totalQuestions: number;
+  correctAnswers: number;
+  accuracy: string;
+  subtopics: { [subtopicName: string]: SubtopicAnalysis };
+  difficultyBreakdown: {
+    [difficulty: string]: {
+      totalQuestions: number;
+      correctAnswers: number;
+      accuracy: string;
+    };
+  };
+}
+
+interface SubjectAnalysis {
+  totalQuestions: number;
+  correctAnswers: number;
+  accuracy: string;
+  topics: { [topicName: string]: TopicAnalysis };
+}
+
 // ROUTE 6: GET /weakness/results/:testInstanceId - Get detailed test results
 const getWeaknessTestResults = async (req: Request, res: Response) => {
   try {
@@ -691,22 +793,13 @@ const getWeaknessTestResults = async (req: Request, res: Response) => {
       where: { id: testInstanceId, userId: uid },
       include: {
         answers: {
-          // Fetch all answers for this test
           orderBy: { question: { id: "asc" } },
           include: {
             question: {
-              // For each answer, include the full question details
+              // We need humanDifficultyLevel from here
               include: {
                 subtopic: {
-                  // And its parent subtopic
-                  include: {
-                    topic: {
-                      // And its parent topic
-                      include: {
-                        subject: true, // And its parent subject
-                      },
-                    },
-                  },
+                  include: { topic: { include: { subject: true } } },
                 },
               },
             },
@@ -718,103 +811,96 @@ const getWeaknessTestResults = async (req: Request, res: Response) => {
     if (!testInstance)
       return res.status(404).json({ error: "Test instance not found" });
 
-    // Define the shape of our final, nested data structure
-    interface QuestionResult {
-      questionId: number;
-      question: string;
-      userAnswer: string | null;
-      correctOption: string;
-      solution: string;
-      isCorrect: boolean;
-      timeTakenSec: number;
-    }
-    interface SubtopicAnalysis {
-      totalQuestions: number;
-      correctAnswers: number;
-      accuracy: string;
-      questions: QuestionResult[];
-    }
-    interface TopicAnalysis {
-      totalQuestions: number;
-      correctAnswers: number;
-      accuracy: string;
-      subtopics: { [subtopicName: string]: SubtopicAnalysis };
-    }
-    interface SubjectAnalysis {
-      totalQuestions: number;
-      correctAnswers: number;
-      accuracy: string;
-      topics: { [topicName: string]: TopicAnalysis };
-    }
+    const initialValue: { [key: string]: SubjectAnalysis } = {};
 
-    const initialValue: { [subjectName: string]: SubjectAnalysis } = {};
+    const subjectAnalysis = testInstance.answers.reduce(
+      (acc: any, answer: any) => {
+        const question = answer.question;
+        const subtopic = question?.subtopic;
+        const topic = subtopic?.topic;
+        const subject = topic?.subject;
 
-    // Use reduce to transform the flat list of answers into the desired nested structure
-    const subjectAnalysis = testInstance.answers.reduce((acc, answer) => {
-      const question = answer.question;
-      const subtopic = question?.subtopic;
-      const topic = subtopic?.topic;
-      const subject = topic?.subject;
+        const difficulty = question?.humanDifficultyLevel;
 
-      // Gracefully skip if any part of the hierarchy is missing
-      if (!question || !subtopic || !topic || !subject) return acc;
+        if (!question || !subtopic || !topic || !subject || !difficulty) {
+          return acc;
+        }
 
-      const subjectName = subject.name;
-      const topicName = topic.name;
-      const subtopicName = subtopic.name;
+        const subjectName: string = subject.name;
+        const topicName: string = topic.name;
+        const subtopicName: string = subtopic.name;
 
-      // Initialize structures if they don't exist
-      if (!acc[subjectName])
-        acc[subjectName] = {
-          totalQuestions: 0,
-          correctAnswers: 0,
-          accuracy: "0",
-          topics: {},
-        };
-      if (!acc[subjectName].topics[topicName])
-        acc[subjectName].topics[topicName] = {
-          totalQuestions: 0,
-          correctAnswers: 0,
-          accuracy: "0",
-          subtopics: {},
-        };
-      if (!acc[subjectName].topics[topicName].subtopics[subtopicName])
-        acc[subjectName].topics[topicName].subtopics[subtopicName] = {
-          totalQuestions: 0,
-          correctAnswers: 0,
-          accuracy: "0",
-          questions: [],
-        };
+        if (!acc[subjectName])
+          acc[subjectName] = {
+            totalQuestions: 0,
+            correctAnswers: 0,
+            accuracy: "0",
+            topics: {},
+          };
 
-      const subjectData = acc[subjectName];
-      const topicData = subjectData.topics[topicName];
-      const subtopicData = topicData.subtopics[subtopicName];
+        if (!acc[subjectName].topics[topicName]) {
+          acc[subjectName].topics[topicName] = {
+            totalQuestions: 0,
+            correctAnswers: 0,
+            accuracy: "0",
+            subtopics: {},
+            difficultyBreakdown: {},
+          };
+        }
+        if (!acc[subjectName].topics[topicName].subtopics[subtopicName])
+          acc[subjectName].topics[topicName].subtopics[subtopicName] = {
+            totalQuestions: 0,
+            correctAnswers: 0,
+            accuracy: "0",
+            questions: [],
+          };
 
-      // Increment counts at all levels
-      subjectData.totalQuestions++;
-      topicData.totalQuestions++;
-      subtopicData.totalQuestions++;
-      if (answer.isCorrect) {
-        subjectData.correctAnswers++;
-        topicData.correctAnswers++;
-        subtopicData.correctAnswers++;
-      }
+        if (
+          !acc[subjectName].topics[topicName].difficultyBreakdown[difficulty]
+        ) {
+          acc[subjectName].topics[topicName].difficultyBreakdown[difficulty] = {
+            totalQuestions: 0,
+            correctAnswers: 0,
+            accuracy: "0",
+          };
+        }
 
-      // Add the detailed question result
-      subtopicData.questions.push({
-        questionId: question.id,
-        question: question.question,
-        userAnswer: answer.userAnswer,
-        correctOption: question.correctOption,
-        solution: question.solution,
-        isCorrect: answer.isCorrect,
-        timeTakenSec: answer.timeTakenSec,
-      });
+        const subjectData = acc[subjectName];
+        const topicData = subjectData.topics[topicName];
+        if (!topicData) return;
+        const subtopicData = topicData.subtopics[subtopicName];
+        if (!subtopicData) return;
+        const difficultyData = topicData.difficultyBreakdown[difficulty];
+        if (!difficultyData) return;
 
-      return acc;
-    }, initialValue);
+        subjectData.totalQuestions++;
+        topicData.totalQuestions++;
+        subtopicData.totalQuestions++;
+        difficultyData.totalQuestions++;
 
-    // A final loop to calculate accuracy percentages at each level
+        if (answer.isCorrect) {
+          subjectData.correctAnswers++;
+          topicData.correctAnswers++;
+          subtopicData.correctAnswers++;
+          difficultyData.correctAnswers++;
+        }
+
+        // Add detailed question result (no change here)
+        subtopicData.questions.push({
+          questionId: question.id,
+          question: question.question,
+          userAnswer: answer.userAnswer,
+          correctOption: question.correctOption,
+          solution: question.solution,
+          isCorrect: answer.isCorrect,
+          timeTakenSec: answer.timeTakenSec,
+        });
+
+        return acc;
+      },
+      initialValue
+    );
+
     for (const subjectName in subjectAnalysis) {
       const subjectData = subjectAnalysis[subjectName];
       subjectData.accuracy = (
@@ -829,6 +915,16 @@ const getWeaknessTestResults = async (req: Request, res: Response) => {
             ? (topicData.correctAnswers / topicData.totalQuestions) * 100
             : 0
         ).toFixed(2);
+
+        for (const difficulty in topicData.difficultyBreakdown) {
+          const diffData = topicData.difficultyBreakdown[difficulty];
+          diffData.accuracy = (
+            diffData.totalQuestions > 0
+              ? (diffData.correctAnswers / diffData.totalQuestions) * 100
+              : 0
+          ).toFixed(2);
+        }
+
         for (const subtopicName in topicData.subtopics) {
           const subtopicData = topicData.subtopics[subtopicName];
           subtopicData.accuracy = (
@@ -941,12 +1037,13 @@ const getWeaknessTestSummary = async (req: Request, res: Response) => {
     const { testInstanceId } = req.params;
     const { uid } = req.user;
     if (!uid) return res.status(401).json({ error: "User not authenticated" });
+    if (!testInstanceId)
+      return res.status(401).json({ error: "Test not found" });
 
-    // Re-use the new topic-based comparison logic
     const comparisonData = await getTopicAccuracyComparisonData(
       testInstanceId,
       uid
-    ); // Assume this helper is created
+    );
     if (!comparisonData || comparisonData.length === 0) {
       return res.status(404).json({ error: "No comparison data found." });
     }
@@ -981,6 +1078,7 @@ const getWeaknessTestSummary = async (req: Request, res: Response) => {
 export {
   getAvailableExams,
   getWeakestTopics,
+  getTestDataForTaking,
   generateWeaknessTest,
   submitWeaknessTest,
   getWeaknessTestResults,

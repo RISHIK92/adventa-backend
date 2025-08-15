@@ -43,7 +43,7 @@ model Exam {
   
   marksPerCorrect           Int     @default(4)
   // Store as a positive integer. The application logic will subtract it.
-  negativeMarksPerIncorrect Int     @default(1) 
+  negativeMarksPerIncorrect Int     @default(1)
   marksPerUnattempted       Int     @default(0)
   
   testInstances UserTestInstanceSummary[] 
@@ -150,17 +150,37 @@ model UserTopicPerformance {
   accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
   avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
 
-  // Timestamps
   lastUpdatedAt DateTime @updatedAt
 
-  // --- Relationships & Indexes ---
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
-  @@id([userId, topicId]) // Composite Primary Key
+  difficultyPerformances UserTopicDifficultyPerformance[]
+
+  @@id([userId, topicId])
   @@index([userId, accuracyPercent])
 }
 
+model UserTopicDifficultyPerformance {
+  userId          String
+  topicId         Int
+  difficultyLevel DifficultyLevel
+
+  // Core performance metrics for this specific difficulty
+  totalAttempted    Int @default(0)
+  totalCorrect      Int @default(0)
+  totalTimeTakenSec Int @default(0)
+
+  // Derived fields for fast queries at the difficulty level
+  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
+  avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
+
+  lastUpdatedAt DateTime @updatedAt
+
+  topicPerformance UserTopicPerformance @relation(fields: [userId, topicId], references: [userId, topicId], onDelete: Cascade)
+
+  @@id([userId, topicId, difficultyLevel])
+}
 
 model UserSubtopicPerformance {
   userId     String

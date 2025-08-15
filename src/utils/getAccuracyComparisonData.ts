@@ -1,22 +1,27 @@
 import { prisma } from "../services/db.js";
 
-export async function getTopicAccuracyComparisonData(
+export const getTopicAccuracyComparisonData = async (
   testInstanceId: string,
   uid: string
-) {
+) => {
   const snapshots = await prisma.testTopicSnapshot.findMany({
-    where: { testInstanceId: testInstanceId },
+    where: { testInstanceId },
     include: { topic: { select: { name: true } } },
   });
 
   if (snapshots.length === 0) {
-    return []; // Return empty array if no data
+    return null;
   }
 
   const topicIds = snapshots.map((s) => s.topicId);
+
   const latestPerformance = await prisma.userTopicPerformance.findMany({
-    where: { userId: uid, topicId: { in: topicIds } },
+    where: {
+      userId: uid,
+      topicId: { in: topicIds },
+    },
   });
+
   const latestPerformanceMap = new Map(
     latestPerformance.map((p) => [p.topicId, p])
   );
@@ -37,4 +42,4 @@ export async function getTopicAccuracyComparisonData(
       ).toFixed(2),
     };
   });
-}
+};

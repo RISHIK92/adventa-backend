@@ -1,6 +1,7 @@
 import express from "express";
 import authRouter from "./routes/authRoutes.js";
 import weaknessRouter from "./routes/weaknessTestRoutes.js";
+import progressRouter from "./routes/progressRoute.js";
 import cors from "cors";
 
 const app = express();
@@ -9,6 +10,7 @@ app.use(cors());
 
 app.use("/auth", authRouter);
 app.use("/weakness", weaknessRouter);
+app.use("/test", progressRouter);
 
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");
