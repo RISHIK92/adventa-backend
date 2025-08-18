@@ -21,6 +21,8 @@ model User {
   primaryExamId Int?
   personaTag    PersonaTag? // Enum for initial experience tailoring
 
+  overallAverageAccuracy Decimal?   @default(0.00) @db.Decimal(5, 2) 
+
   createdAt DateTime @default(now())
 
   primaryExam Exam? @relation(fields: [primaryExamId], references: [id])
@@ -45,11 +47,28 @@ model Exam {
   // Store as a positive integer. The application logic will subtract it.
   negativeMarksPerIncorrect Int     @default(1)
   marksPerUnattempted       Int     @default(0)
-  
+
+  examSessions ExamSession[]
   testInstances UserTestInstanceSummary[] 
   subjects      Subject[]
   users         User[]
   examSummaries UserExamOverallSummary[]
+}
+
+model ExamSession {
+  id     Int    @id @default(autoincrement())
+  examId Int
+  name   String // e.g., "2024 - 27th Jan Shift 1", "2023 Phase 2", "2022"
+
+  // This is the date the exam took place
+  sessionDate DateTime?
+
+  // --- Relationships ---
+  exam      Exam       @relation(fields: [examId], references: [id])
+  questions Question[] // An exam session has many questions
+
+  // An exam must have a unique session name
+  @@unique([examId, name])
 }
 
 model Subject {
@@ -68,6 +87,8 @@ model Topic {
   subjectId Int
   name      String // e.g., 'Rotational Motion', 'Organic Chemistry'
 
+  averageAccuracyPercent Decimal?  @default(0.00) @db.Decimal(5, 2)
+
   // --- Relationships ---
   userPerformance     UserTopicPerformance[]
   subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
@@ -82,6 +103,8 @@ model Subtopic {
   topicId Int
   name    String // e.g., 'Moment of Inertia'
 
+  averageAccuracyPercent Decimal  @default(0.00) @db.Decimal(5, 2)
+
   topic           Topic                     @relation(fields: [topicId], references: [id], onDelete: Cascade)
   questions       Question[] // A subtopic has many questions
   userPerformance UserSubtopicPerformance[]
@@ -93,6 +116,7 @@ model Subtopic {
 model Question {
   id         Int @id @default(autoincrement())
   subtopicId Int
+  examSessionId Int?
 
   question      String
   shortcut      String?
@@ -104,7 +128,6 @@ model Question {
   solution      String
 
   // Metadata & ML Features
-  examname             String   // JEE Main 2024 - 27th Jan Shift 1
   humanDifficultyLevel DifficultyLevel // Enum for human assessment
   questionType         String[] // Array of strings for types
   wordCountQuestion    Int?
@@ -117,7 +140,7 @@ model Question {
   predictedDifficultyScore Float?
   platformAvgTimeSec       Int?
 
-  // --- Relationships ---
+  examSession    ExamSession?     @relation(fields: [examSessionId], references: [id])
   subtopic       Subtopic         @relation(fields: [subtopicId], references: [id])
   UserTestAnswer UserTestAnswer[]
   testInstances TestInstanceQuestion[]

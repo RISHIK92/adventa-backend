@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 
 export const Signup = async (req: Request, res: Response): Promise<void> => {
   const { email, uid } = req.user;
+  console.log(uid);
 
   if (!email || !uid) {
     res.status(400).json({ error: "Email and password are required" });

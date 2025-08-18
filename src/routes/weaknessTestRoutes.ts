@@ -9,6 +9,7 @@ import {
   getTestDataForTaking,
   getAccuracyComparison,
   getWeaknessTestSummary,
+  getWeaknessTestHistory,
 } from "../controllers/weaknessTestController.js";
 
 const router = Router();
@@ -37,5 +38,6 @@ router.get(
   verifyFirebaseToken,
   getWeaknessTestSummary
 );
+router.get(`/history`, verifyFirebaseToken, getWeaknessTestHistory);
 
 export default router;
