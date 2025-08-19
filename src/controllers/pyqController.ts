@@ -289,6 +289,78 @@ const getPyqBestScore = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * ROUTE: GET /pyq/percentile/:testInstanceId
+ * Calculates a user's percentile based on a pre-defined score-to-percentile mapping
+ * stored in the ExamSession table.
+ */
+const getPyqPercentile = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { testInstanceId } = req.params;
+
+    if (!uid) return res.status(401).json({ error: "User not authenticated" });
+    if (!testInstanceId)
+      return res.status(400).json({ error: "Test Instance ID is required" });
+
+    // Step 1: Get the user's test, but this time include the mapping from the related ExamSession
+    const currentUserTest = await prisma.userTestInstanceSummary.findUnique({
+      where: { id: testInstanceId, userId: uid },
+      select: {
+        score: true,
+        examSession: {
+          // Include the related exam session
+          select: {
+            scorePercentileMapping: true, // And select the new JSON field
+          },
+        },
+      },
+    });
+
+    if (
+      !currentUserTest ||
+      !currentUserTest.examSession?.scorePercentileMapping
+    ) {
+      return res.status(404).json({
+        success: false,
+        error: "Percentile data is not available for this paper.",
+      });
+    }
+
+    const userScore = currentUserTest.score;
+    const mapping = currentUserTest.examSession
+      .scorePercentileMapping as Record<string, number>;
+
+    // Step 2: Find the correct percentile from the mapping
+
+    // Get all the score thresholds from the mapping (e.g., ["300", "295", "290", ...])
+    const scoreThresholds = Object.keys(mapping)
+      .map(Number)
+      .sort((a, b) => b - a);
+
+    let matchedPercentile = 0;
+
+    // Find the highest threshold that is less than or equal to the user's score
+    for (const threshold of scoreThresholds) {
+      if (userScore >= threshold) {
+        matchedPercentile = mapping[String(threshold)];
+        break;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        score: userScore,
+        percentile: matchedPercentile,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching PYQ percentile from mapping:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // ROUTE 3: GET /pyq/test/:testInstanceId
 // This uses the exact same logic as getTestDataForTaking
 // It already provides all the necessary details.
