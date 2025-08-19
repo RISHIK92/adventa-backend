@@ -76,16 +76,13 @@ const getTestProgress = async (req: Request, res: Response) => {
         .json({ error: "This test has already been completed." });
     }
 
-    // If validation passes, fetch the progress from Redis
     const redisKey = `progress:${testInstanceId}`;
     const savedProgress = await redisClient.hGetAll(redisKey);
 
-    // If no progress is found, return an empty object
     if (!savedProgress || Object.keys(savedProgress).length === 0) {
       return res.json({ success: true, data: { answers: {}, totalTime: 0 } });
     }
 
-    // Parse the data into a clean format for the frontend
     const totalTime = parseFloat(savedProgress._totalTime || "0");
     delete savedProgress._totalTime;
 

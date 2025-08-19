@@ -768,6 +768,49 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
       );
     }
 
+    const questionAttemptCounts = await prisma.userTestAnswer.groupBy({
+      by: ["questionId"],
+      where: {
+        questionId: { in: questionIds },
+        status: { in: [AnswerStatus.Correct, AnswerStatus.Incorrect] },
+      },
+      _count: {
+        questionId: true,
+      },
+    });
+
+    const attemptCountMap = new Map(
+      questionAttemptCounts.map((item) => [
+        item.questionId,
+        item._count.questionId,
+      ])
+    );
+
+    // Promise 5: Update Question averageTimeSec for each answered question
+    for (const answer of answers) {
+      if (!answer.userAnswer) continue;
+
+      const question = questionsMap.get(answer.questionId);
+      if (!question) continue;
+
+      const previousAttempts = attemptCountMap.get(question.id) || 0;
+      const currentAvgTime = question.averageTimeSec || 0;
+
+      // Calculate the new moving average
+      const newAverageTime =
+        (currentAvgTime * previousAttempts + answer.timeTaken) /
+        (previousAttempts + 1);
+
+      transactionPromises.push(
+        prisma.question.update({
+          where: { id: question.id },
+          data: {
+            averageTimeSec: Math.round(newAverageTime), // Store as an integer
+          },
+        })
+      );
+    }
+
     // Promise 5: Update the final test summary
     const finalScore = totalCorrect;
     transactionPromises.push(
@@ -790,12 +833,12 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
     // Clean up Redis progress
     await redisClient.del(redisKey);
 
-    // --- PHASE 5: BACKGROUND AGGREGATE UPDATES (FIRE-AND-FORGET) ---
+    // --- PHASE 6: BACKGROUND AGGREGATE UPDATES (FIRE-AND-FORGET) ---
     void updateGlobalTopicAverages(topicIds);
     void updateGlobalSubtopicAverages(subtopicIds);
     void updateUserOverallAverage(uid);
 
-    // --- PHASE 6: RESPOND TO USER ---
+    // --- PHASE 7: RESPOND TO USER ---
     const accuracyPercent =
       totalAttempted > 0 ? (totalCorrect / totalAttempted) * 100 : 0;
     res.status(200).json({

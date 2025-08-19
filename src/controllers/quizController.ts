@@ -633,6 +633,50 @@ const submitCustomQuiz = async (req: Request, res: Response) => {
       })
     );
 
+    // === UPDATE QUESTION'S AVERAGE TIME ===
+    const questionAttemptCounts = await prisma.userTestAnswer.groupBy({
+      by: ["questionId"],
+      where: {
+        questionId: { in: questionIds },
+        status: { in: [AnswerStatus.Correct, AnswerStatus.Incorrect] },
+      },
+      _count: {
+        questionId: true,
+      },
+    });
+
+    const attemptCountMap = new Map(
+      questionAttemptCounts.map((item) => [
+        item.questionId,
+        item._count.questionId,
+      ])
+    );
+
+    // Promise 5: Update Question averageTimeSec for each answered question
+    for (const answer of answers) {
+      if (!answer.userAnswer) continue;
+
+      const question = questionsMap.get(answer.questionId);
+      if (!question) continue;
+
+      const previousAttempts = attemptCountMap.get(question.id) || 0;
+      const currentAvgTime = question.averageTimeSec || 0;
+
+      // Calculate the new moving average
+      const newAverageTime =
+        (currentAvgTime * previousAttempts + answer.timeTaken) /
+        (previousAttempts + 1);
+
+      transactionPromises.push(
+        prisma.question.update({
+          where: { id: question.id },
+          data: {
+            averageTimeSec: Math.round(newAverageTime),
+          },
+        })
+      );
+    }
+
     await prisma.$transaction(transactionPromises);
 
     await redisClient.del(redisKey);

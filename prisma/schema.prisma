@@ -63,12 +63,24 @@ model ExamSession {
   // This is the date the exam took place
   sessionDate DateTime?
 
+  scorePercentileMapping Json?
+
   // --- Relationships ---
   exam      Exam       @relation(fields: [examId], references: [id])
   questions Question[] // An exam session has many questions
+  generatedPaper GeneratedPyqPaper? 
 
-  // An exam must have a unique session name
+  testInstances UserTestInstanceSummary[]
+
   @@unique([examId, name])
+}
+
+model GeneratedPyqPaper {
+  id            Int         @id @default(autoincrement())
+  examSessionId Int         @unique // A PYQ session has only ONE official generated paper
+  questionOrder Json        // Stores an array of question IDs in order, e.g., [101, 102, 205, ...]
+
+  examSession   ExamSession @relation(fields: [examSessionId], references: [id])
 }
 
 model Subject {
@@ -262,7 +274,6 @@ model TestSubtopicSnapshot {
   @@unique([testInstanceId, subtopicId]) // Ensure one snapshot per subtopic per test
 }
 
-
 model UserExamOverallSummary {
   userId String
   examId Int
@@ -303,6 +314,8 @@ model UserTestInstanceSummary {
   numUnattempted Int
   timeTakenSec   Int
 
+  examSessionId Int?
+
   completedAt        DateTime?
   
   exam Exam @relation(fields: [examId], references: [id])
@@ -310,6 +323,7 @@ model UserTestInstanceSummary {
 
   answers UserTestAnswer[]
   testQuestions TestInstanceQuestion[]
+  examSession ExamSession? @relation(fields: [examSessionId], references: [id])
 
   @@index([userId, completedAt(sort: Desc)])
   topicSnapshots      TestTopicSnapshot[]
