@@ -8,6 +8,7 @@ import {
   getPyqBestScore,
   getPyqDataForTaking,
   getPyqTestResults,
+  getPyqPercentile,
   submitPyqTest,
 } from "../controllers/pyqController.js";
 
@@ -27,6 +28,12 @@ router.get("/test/:testInstanceId", verifyFirebaseToken, getPyqDataForTaking);
 
 // Get PYQ test details
 router.post("/submit/:testId", verifyFirebaseToken, submitPyqTest);
+
+router.get(
+  "/percentile/:testInstanceId",
+  verifyFirebaseToken,
+  getPyqPercentile
+);
 
 router.get("/best-score/:examSessionId", verifyFirebaseToken, getPyqBestScore);
 

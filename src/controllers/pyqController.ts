@@ -338,12 +338,15 @@ const getPyqPercentile = async (req: Request, res: Response) => {
       .map(Number)
       .sort((a, b) => b - a);
 
-    let matchedPercentile = 0;
+    let matchedPercentile: number = 0;
 
     // Find the highest threshold that is less than or equal to the user's score
     for (const threshold of scoreThresholds) {
       if (userScore >= threshold) {
-        matchedPercentile = mapping[String(threshold)];
+        const percentileForThreshold = mapping[String(threshold)];
+        if (typeof percentileForThreshold === "number") {
+          matchedPercentile = percentileForThreshold;
+        }
         break;
       }
     }
@@ -382,4 +385,5 @@ export {
   getPyqBestScore,
   getPyqDataForTaking,
   getPyqTestResults,
+  getPyqPercentile,
 };

@@ -8,3 +8,4 @@ router.use("/signup", verifyFirebaseToken, Signup);
 router.use("/signin", verifyFirebaseToken, Signin);
 
 export default router;
+
