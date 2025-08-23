@@ -21,7 +21,7 @@ model User {
   primaryExamId Int?
   personaTag    PersonaTag? // Enum for initial experience tailoring
 
-  overallAverageAccuracy Decimal?   @default(0.00) @db.Decimal(5, 2) 
+  overallAverageAccuracy Decimal? @default(0.00) @db.Decimal(5, 2)
 
   createdAt DateTime @default(now())
 
@@ -34,22 +34,27 @@ model User {
   UserTestAnswer      UserTestAnswer[]
 
   UserTopicPerformance UserTopicPerformance[]
+
+  studyRooms           StudyRoomMember[]
+  createdStudyRooms    StudyRoom[]            @relation("StudyRoomAdmins")
+  GroupTest            GroupTest[]
+  GroupTestParticipant GroupTestParticipant[]
 }
 
 model Exam {
   id   Int    @id @default(autoincrement())
   name String @unique // e.g., 'JEE Main & Advanced', 'NEET UG'
 
-  durationInMinutes         Int     // e.g., 180
-  totalQuestions            Int     // e.g., 90
-  
-  marksPerCorrect           Int     @default(4)
-  // Store as a positive integer. The application logic will subtract it.
-  negativeMarksPerIncorrect Int     @default(1)
-  marksPerUnattempted       Int     @default(0)
+  durationInMinutes Int // e.g., 180
+  totalQuestions    Int // e.g., 90
 
-  examSessions ExamSession[]
-  testInstances UserTestInstanceSummary[] 
+  marksPerCorrect           Int @default(4)
+  // Store as a positive integer. The application logic will subtract it.
+  negativeMarksPerIncorrect Int @default(1)
+  marksPerUnattempted       Int @default(0)
+
+  examSessions  ExamSession[]
+  testInstances UserTestInstanceSummary[]
   subjects      Subject[]
   users         User[]
   examSummaries UserExamOverallSummary[]
@@ -66,21 +71,22 @@ model ExamSession {
   scorePercentileMapping Json?
 
   // --- Relationships ---
-  exam      Exam       @relation(fields: [examId], references: [id])
-  questions Question[] // An exam session has many questions
-  generatedPaper GeneratedPyqPaper? 
+  exam           Exam               @relation(fields: [examId], references: [id])
+  questions      Question[] // An exam session has many questions
+  generatedPaper GeneratedPyqPaper?
 
   testInstances UserTestInstanceSummary[]
 
   @@unique([examId, name])
+  @@index([examId])
 }
 
 model GeneratedPyqPaper {
-  id            Int         @id @default(autoincrement())
-  examSessionId Int         @unique // A PYQ session has only ONE official generated paper
-  questionOrder Json        // Stores an array of question IDs in order, e.g., [101, 102, 205, ...]
+  id            Int  @id @default(autoincrement())
+  examSessionId Int  @unique // A PYQ session has only ONE official generated paper
+  questionOrder Json // Stores an array of question IDs in order, e.g., [101, 102, 205, ...]
 
-  examSession   ExamSession @relation(fields: [examSessionId], references: [id])
+  examSession ExamSession @relation(fields: [examSessionId], references: [id])
 }
 
 model Subject {
@@ -99,15 +105,16 @@ model Topic {
   subjectId Int
   name      String // e.g., 'Rotational Motion', 'Organic Chemistry'
 
-  averageAccuracyPercent Decimal?  @default(0.00) @db.Decimal(5, 2)
+  averageAccuracyPercent Decimal? @default(0.00) @db.Decimal(5, 2)
 
   // --- Relationships ---
-  userPerformance     UserTopicPerformance[]
-  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  subtopics Subtopic[]
+  userPerformance   UserTopicPerformance[]
+  subject           Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subtopics         Subtopic[]
+  TestTopicSnapshot TestTopicSnapshot[]
 
   @@unique([subjectId, name])
-  TestTopicSnapshot TestTopicSnapshot[]
+  @@index([subjectId])
 }
 
 model Subtopic {
@@ -115,19 +122,20 @@ model Subtopic {
   topicId Int
   name    String // e.g., 'Moment of Inertia'
 
-  averageAccuracyPercent Decimal  @default(0.00) @db.Decimal(5, 2)
+  averageAccuracyPercent Decimal @default(0.00) @db.Decimal(5, 2)
 
-  topic           Topic                     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  questions       Question[] // A subtopic has many questions
-  userPerformance UserSubtopicPerformance[]
+  topic                 Topic                     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  questions             Question[] // A subtopic has many questions
+  userPerformance       UserSubtopicPerformance[]
+  testSubtopicSnapshots TestSubtopicSnapshot[]
 
   @@unique([topicId, name])
-  testSubtopicSnapshots TestSubtopicSnapshot[]
+  @@index([topicId])
 }
 
 model Question {
-  id         Int @id @default(autoincrement())
-  subtopicId Int
+  id            Int  @id @default(autoincrement())
+  subtopicId    Int
   examSessionId Int?
 
   question      String
@@ -152,10 +160,12 @@ model Question {
   predictedDifficultyScore Float?
   platformAvgTimeSec       Int?
 
-  examSession    ExamSession?     @relation(fields: [examSessionId], references: [id])
-  subtopic       Subtopic         @relation(fields: [subtopicId], references: [id])
+  examSession    ExamSession?           @relation(fields: [examSessionId], references: [id])
+  subtopic       Subtopic               @relation(fields: [subtopicId], references: [id])
   UserTestAnswer UserTestAnswer[]
-  testInstances TestInstanceQuestion[]
+  testInstances  TestInstanceQuestion[]
+
+  @@index([examSessionId])
 }
 
 model TestInstanceQuestion {
@@ -165,7 +175,7 @@ model TestInstanceQuestion {
   order          Int // To maintain the question order
 
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id])
-  question     Question              @relation(fields: [questionId], references: [id])
+  question     Question                @relation(fields: [questionId], references: [id])
 
   @@unique([testInstanceId, questionId])
   @@index([testInstanceId])
@@ -240,37 +250,38 @@ model UserSubtopicPerformance {
 
   @@id([userId, subtopicId]) // Composite Primary Key
   @@index([userId, accuracyPercent]) // For fast lookups of a user's weakest topics
+  @@index([userId, subtopicId])
 }
 
 model TestTopicSnapshot {
-  id                String   @id @default(uuid())
-  testInstanceId    String
-  topicId           Int
-  
+  id             String @id @default(uuid())
+  testInstanceId String
+  topicId        Int
+
   // The user's performance METRICS AT THE MOMENT OF TEST CREATION
   accuracyPercentBefore Decimal @db.Decimal(5, 2)
   totalAttemptedBefore  Int
-  
+
   // --- Relationships ---
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
   topic        Topic                   @relation(fields: [topicId], references: [id])
-  
+
   @@unique([testInstanceId, topicId])
 }
 
 model TestSubtopicSnapshot {
-  id                String   @id @default(uuid())
-  testInstanceId    String
-  subtopicId        Int
-  
+  id             String @id @default(uuid())
+  testInstanceId String
+  subtopicId     Int
+
   // The user's performance METRICS AT THE MOMENT OF TEST CREATION
   accuracyPercentBefore Decimal @db.Decimal(5, 2)
   totalAttemptedBefore  Int
-  
+
   // --- Relationships ---
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
   subtopic     Subtopic                @relation(fields: [subtopicId], references: [id])
-  
+
   @@unique([testInstanceId, subtopicId]) // Ensure one snapshot per subtopic per test
 }
 
@@ -316,18 +327,22 @@ model UserTestInstanceSummary {
 
   examSessionId Int?
 
-  completedAt        DateTime?
-  
+  completedAt DateTime?
+
   exam Exam @relation(fields: [examId], references: [id])
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  answers UserTestAnswer[]
+  answers       UserTestAnswer[]
   testQuestions TestInstanceQuestion[]
-  examSession ExamSession? @relation(fields: [examSessionId], references: [id])
+  examSession   ExamSession?           @relation(fields: [examSessionId], references: [id])
+
+  topicSnapshots       TestTopicSnapshot[]
+  subtopicSnapshots    TestSubtopicSnapshot[]
+  GroupTestParticipant GroupTestParticipant?
 
   @@index([userId, completedAt(sort: Desc)])
-  topicSnapshots      TestTopicSnapshot[]
-  subtopicSnapshots TestSubtopicSnapshot[]
+  @@index([userId, examId, testType, completedAt(sort: Desc)])
+  @@index([userId, examSessionId, completedAt(sort: Desc)])
 }
 
 model UserTestAnswer {
@@ -347,6 +362,83 @@ model UserTestAnswer {
 
   @@unique([testInstanceId, questionId])
   @@index([testInstanceId])
+}
+
+model StudyRoom {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  // Relationships
+  members    StudyRoomMember[]
+  groupTests GroupTest[]
+  admins     User[]            @relation("StudyRoomAdmins")
+}
+
+model StudyRoomMember {
+  studyRoomId String
+  userId      String
+  role        StudyRoomRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  // Relationships
+  studyRoom StudyRoom @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([studyRoomId, userId])
+}
+
+model GroupTest {
+  id           String   @id @default(uuid())
+  studyRoomId  String
+  createdById  String // User ID of the admin who created the test
+  testSettings Json // e.g., topics, number of questions, difficulty
+  createdAt    DateTime @default(now())
+
+  // Relationships
+  studyRoom    StudyRoom              @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
+  createdBy    User                   @relation(fields: [createdById], references: [id])
+  participants GroupTestParticipant[]
+  report       GroupTestReport?
+}
+
+model GroupTestParticipant {
+  groupTestId        String
+  userId             String
+  userTestInstanceId String @unique // Links to the user's specific test instance
+
+  // Relationships
+  groupTest        GroupTest               @relation(fields: [groupTestId], references: [id], onDelete: Cascade)
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userTestInstance UserTestInstanceSummary @relation(fields: [userTestInstanceId], references: [id])
+
+  @@id([groupTestId, userId])
+}
+
+model GroupTestReport {
+  id          String   @id @default(uuid())
+  groupTestId String   @unique
+  generatedAt DateTime @default(now())
+
+  // Anonymized, aggregated data
+  groupAverageScore           Float
+  groupAverageTimePerQuestion Float
+  groupAverageAccuracy        Float
+
+  // JSON field to store detailed topic-wise comparison
+  topicPerformanceComparison Json
+  // e.g., { "topicId1": { "groupAvg": 75.5, "userScores": { "userId1": 80, "userId2": 70 } }, ... }
+
+  aiSummary String // Insightful summary of relative strengths and weaknesses
+
+  // Relationship
+  groupTest GroupTest @relation(fields: [groupTestId], references: [id], onDelete: Cascade)
+}
+
+enum StudyRoomRole {
+  ADMIN
+  MEMBER
 }
 
 enum AnswerStatus {

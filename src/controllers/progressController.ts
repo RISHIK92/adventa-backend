@@ -44,6 +44,62 @@ const saveTestProgress = async (req: Request, res: Response) => {
   }
 };
 
+const saveMarkedTestProgress = async (req: Request, res: Response) => {
+  try {
+    const { testInstanceId } = req.params;
+    const { questionId, userAnswer, markedForReview, timeSpentChunk } =
+      req.body;
+
+    // Check for required fields - timeSpentChunk can be 0, so check for undefined/null
+    if (!testInstanceId || !questionId || timeSpentChunk == null) {
+      return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    // Validate timeSpentChunk is a number
+    if (typeof timeSpentChunk !== "number") {
+      return res
+        .status(400)
+        .json({ error: "timeSpentChunk must be a number." });
+    }
+
+    const redisKey = `progress:${testInstanceId}`;
+
+    const existingData = await redisClient.hGet(redisKey, String(questionId));
+    let currentProgress = { answer: null, markedForReview: false, time: 0 };
+    if (existingData) {
+      currentProgress = JSON.parse(existingData);
+    }
+
+    // Update progress
+    currentProgress.answer = userAnswer;
+    if (markedForReview !== undefined) {
+      currentProgress.markedForReview = markedForReview;
+    }
+    currentProgress.time += timeSpentChunk;
+
+    // Save updated progress
+    await redisClient.hSet(
+      redisKey,
+      String(questionId),
+      JSON.stringify(currentProgress)
+    );
+
+    // Update total time only if timeSpentChunk > 0
+    if (timeSpentChunk > 0) {
+      await redisClient.hIncrBy(
+        redisKey,
+        "_totalTime",
+        Math.round(timeSpentChunk)
+      );
+    }
+
+    res.json({ success: true, message: "Progress saved." });
+  } catch (error) {
+    console.error("Error saving test progress:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 const getTestProgress = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
@@ -110,4 +166,75 @@ const getTestProgress = async (req: Request, res: Response) => {
   }
 };
 
-export { saveTestProgress, getTestProgress };
+const getMarkedTestProgress = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { testInstanceId } = req.params;
+
+    if (!uid) {
+      return res.status(401).json({ error: "User not authenticated" });
+    }
+    if (!testInstanceId) {
+      return res.status(400).json({ error: "Test instance ID is required" });
+    }
+
+    const testInstance = await prisma.userTestInstanceSummary.findFirst({
+      where: {
+        id: testInstanceId,
+        userId: uid,
+      },
+      select: { id: true, completedAt: true },
+    });
+
+    if (!testInstance) {
+      return res
+        .status(404)
+        .json({ error: "Test instance not found for this user." });
+    }
+    if (testInstance.completedAt) {
+      return res
+        .status(403)
+        .json({ error: "This test has already been completed." });
+    }
+
+    const redisKey = `progress:${testInstanceId}`;
+    const savedProgress = await redisClient.hGetAll(redisKey);
+
+    if (!savedProgress || Object.keys(savedProgress).length === 0) {
+      return res.json({ success: true, data: { answers: {}, totalTime: 0 } });
+    }
+
+    const totalTime = parseFloat(savedProgress._totalTime || "0");
+    delete savedProgress._totalTime;
+
+    const answers = Object.entries(savedProgress).reduce(
+      (acc, [questionId, data]) => {
+        const { answer, markedForReview } = JSON.parse(data);
+        acc[questionId] = {
+          answer: answer || null,
+          markedForReview: markedForReview || false,
+        };
+        return acc;
+      },
+      {} as Record<string, { answer: string | null; markedForReview: boolean }>
+    );
+
+    res.json({
+      success: true,
+      data: {
+        answers,
+        totalTime,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching marked test progress:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export {
+  saveTestProgress,
+  saveMarkedTestProgress,
+  getTestProgress,
+  getMarkedTestProgress,
+};

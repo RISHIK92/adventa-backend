@@ -382,7 +382,15 @@ const getTestDataForTaking = async (req: Request, res: Response) => {
           include: {
             question: {
               include: {
-                subtopic: true,
+                subtopic: {
+                  include: {
+                    topic: {
+                      include: {
+                        subject: true,
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -412,6 +420,10 @@ const getTestDataForTaking = async (req: Request, res: Response) => {
       testInstance.totalQuestions * avgTimePerQuestion
     );
 
+    const redisKey = `progress:${testInstanceId}`;
+    const timeSpentString = await redisClient.hGet(redisKey, "_totalTime");
+    const timeSpentSec = parseInt(timeSpentString || "0", 10);
+
     res.json({
       success: true,
       data: {
@@ -436,9 +448,13 @@ const getTestDataForTaking = async (req: Request, res: Response) => {
             );
           }
 
+          const subjectName =
+            tq.question.subtopic?.topic?.subject?.name ?? "General";
+
           return {
             id: tq.question.id,
             questionNumber: tq.order,
+            subject: subjectName,
             question: tq.question.question,
             options: formattedOptions,
             imageUrl: tq.question.imageUrl,
@@ -490,6 +506,8 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
         timeTaken: Math.round(time),
       };
     });
+
+    console.log(answers);
 
     const testInstance = await prisma.userTestInstanceSummary.findUnique({
       where: { id: testInstanceId, userId: uid },

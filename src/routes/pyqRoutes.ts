@@ -27,7 +27,7 @@ router.post("/generate", verifyFirebaseToken, generatePyqTest);
 router.get("/test/:testInstanceId", verifyFirebaseToken, getPyqDataForTaking);
 
 // Get PYQ test details
-router.post("/submit/:testId", verifyFirebaseToken, submitPyqTest);
+router.post("/submit/:testInstanceId", verifyFirebaseToken, submitPyqTest);
 
 router.get(
   "/percentile/:testInstanceId",
