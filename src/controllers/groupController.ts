@@ -1036,7 +1036,7 @@ export const removeMemberFromStudyRoom = async (
 ) => {
   try {
     const { uid } = req.user;
-    const { roomId } = req.params;
+    const { roomId, userId } = req.params;
 
     if (!uid) {
       return res.status(401).json({ error: "User not authenticated" });
@@ -1044,6 +1044,10 @@ export const removeMemberFromStudyRoom = async (
 
     if (!roomId) {
       return res.status(400).json({ error: "Room ID is required" });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
     }
 
     const room = await prisma.studyRoom.findUnique({
@@ -1063,7 +1067,7 @@ export const removeMemberFromStudyRoom = async (
       where: {
         studyRoomId_userId: {
           studyRoomId: roomId,
-          userId: uid,
+          userId: userId,
         },
       },
     });
