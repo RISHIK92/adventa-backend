@@ -79,3 +79,27 @@ export const updateUserOverallAverage = async (userId: string) => {
     console.error(`Error updating overall average for user ${userId}:`, error);
   }
 };
+
+export const updateGlobalSubjectAverages = async (subjectIds: number[]) => {
+  if (!subjectIds || subjectIds.length === 0) return;
+  console.log(`Updating global averages for ${subjectIds.length} subjects.`);
+  try {
+    for (const subjectId of subjectIds) {
+      const result = await prisma.userSubjectPerformance.aggregate({
+        _avg: {
+          accuracyPercent: true,
+        },
+        where: { subjectId },
+      });
+
+      const average = result._avg.accuracyPercent ?? new Decimal(0);
+
+      await prisma.subject.update({
+        where: { id: subjectId },
+        data: { averageAccuracyPercent: average },
+      });
+    }
+  } catch (error) {
+    console.error("Error updating global subject averages:", error);
+  }
+};

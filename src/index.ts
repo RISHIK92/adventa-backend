@@ -5,6 +5,7 @@ import progressRouter from "./routes/progressRoute.js";
 import quizRouter from "./routes/quizRoutes.js";
 import pyqRouter from "./routes/pyqRoutes.js";
 import practiceRouter from "./routes/practiceRoutes.js";
+import groupRouter from "./routes/groupRoutes.js";
 import cors from "cors";
 
 const app = express();
@@ -17,6 +18,7 @@ app.use("/test", progressRouter);
 app.use("/pyq", pyqRouter);
 app.use("/custom-quiz", quizRouter);
 app.use("/practice", practiceRouter);
+app.use("/study-group", groupRouter);
 
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");

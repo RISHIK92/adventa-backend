@@ -10,6 +10,7 @@ import {
   updateGlobalTopicAverages,
   updateGlobalSubtopicAverages,
   updateUserOverallAverage,
+  updateGlobalSubjectAverages,
 } from "../utils/globalStatsUpdater.js";
 
 /**
@@ -566,28 +567,25 @@ const submitPyqTest = async (req: Request, res: Response) => {
             id: true,
             topicId: true,
             name: true,
-            topic: { select: { id: true, name: true } },
+            topic: {
+              select: {
+                id: true,
+                subjectId: true,
+              },
+            },
           },
         },
       },
     });
 
-    console.log(
-      "Questions fetched:",
-      questions.map((q) => ({
-        id: q.id,
-        subtopic: q.subtopic
-          ? {
-              id: q.subtopic.id,
-              name: q.subtopic.name,
-              topicId: q.subtopic.topicId,
-              topicName: q.subtopic.topic?.name,
-            }
-          : null,
-      }))
-    );
-
     const questionsMap = new Map(questions.map((q) => [q.id, q]));
+
+    const topicToSubjectMap = new Map<number, number>();
+    questions.forEach((q) => {
+      if (q.subtopic?.topic) {
+        topicToSubjectMap.set(q.subtopic.topic.id, q.subtopic.topic.subjectId);
+      }
+    });
 
     // Check if questions have subtopics
     const questionsWithoutSubtopics = questions.filter((q) => !q.subtopic);
@@ -612,6 +610,8 @@ const submitPyqTest = async (req: Request, res: Response) => {
       ),
     ];
 
+    const subjectIds = [...new Set(topicToSubjectMap.values())];
+
     console.log("Topic IDs:", topicIds);
     console.log("Subtopic IDs:", subtopicIds);
 
@@ -619,26 +619,38 @@ const submitPyqTest = async (req: Request, res: Response) => {
     let currentTopicPerfs: any[] = [];
     let currentSubtopicPerfs: any[] = [];
     let currentTopicDifficultyPerfs: any[] = [];
+    let currentSubjectPerfs: any[] = [];
 
-    if (topicIds.length > 0 || subtopicIds.length > 0) {
-      [currentTopicPerfs, currentSubtopicPerfs, currentTopicDifficultyPerfs] =
-        await Promise.all([
-          topicIds.length > 0
-            ? prisma.userTopicPerformance.findMany({
-                where: { userId: uid, topicId: { in: topicIds } },
-              })
-            : [],
-          subtopicIds.length > 0
-            ? prisma.userSubtopicPerformance.findMany({
-                where: { userId: uid, subtopicId: { in: subtopicIds } },
-              })
-            : [],
-          topicIds.length > 0
-            ? prisma.userTopicDifficultyPerformance.findMany({
-                where: { userId: uid, topicId: { in: topicIds } },
-              })
-            : [],
-        ]);
+    if (
+      topicIds.length > 0 ||
+      subtopicIds.length > 0 ||
+      subjectIds.length > 0
+    ) {
+      [
+        currentTopicPerfs,
+        currentSubtopicPerfs,
+        currentTopicDifficultyPerfs,
+        currentSubjectPerfs,
+      ] = await Promise.all([
+        topicIds.length > 0
+          ? prisma.userTopicPerformance.findMany({
+              where: { userId: uid, topicId: { in: topicIds } },
+            })
+          : [],
+        subtopicIds.length > 0
+          ? prisma.userSubtopicPerformance.findMany({
+              where: { userId: uid, subtopicId: { in: subtopicIds } },
+            })
+          : [],
+        topicIds.length > 0
+          ? prisma.userTopicDifficultyPerformance.findMany({
+              where: { userId: uid, topicId: { in: topicIds } },
+            })
+          : [],
+        prisma.userSubjectPerformance.findMany({
+          where: { userId: uid, subjectId: { in: subjectIds } },
+        }),
+      ]);
     }
 
     const topicPerfMap = new Map(currentTopicPerfs.map((p) => [p.topicId, p]));
@@ -650,6 +662,9 @@ const submitPyqTest = async (req: Request, res: Response) => {
         `${p.topicId}-${p.difficultyLevel}`,
         p,
       ])
+    );
+    const subjectPerfMap = new Map(
+      currentSubjectPerfs.map((p) => [p.subjectId, p])
     );
 
     // --- PHASE 3: ANSWER PROCESSING & AGGREGATION ---
@@ -899,6 +914,65 @@ const submitPyqTest = async (req: Request, res: Response) => {
       `Added ${topicDifficultyUpdates.size} difficulty performance updates to transaction`
     );
 
+    const subjectUpdates = new Map<
+      number,
+      { attempted: number; correct: number; time: number }
+    >();
+    for (const [topicId, update] of topicUpdates.entries()) {
+      const subjectId = topicToSubjectMap.get(topicId);
+      if (subjectId) {
+        const subjectUpdate = subjectUpdates.get(subjectId) || {
+          attempted: 0,
+          correct: 0,
+          time: 0,
+        };
+        subjectUpdate.attempted += update.attempted;
+        subjectUpdate.correct += update.correct;
+        subjectUpdate.time += update.time;
+        subjectUpdates.set(subjectId, subjectUpdate);
+      }
+    }
+
+    for (const [subjectId, update] of subjectUpdates.entries()) {
+      const currentPerf = subjectPerfMap.get(subjectId);
+      const newTotalAttempted =
+        (currentPerf?.totalAttempted || 0) + update.attempted;
+      const newTotalCorrect = (currentPerf?.totalCorrect || 0) + update.correct;
+      const newTotalTimeTaken =
+        (currentPerf?.totalTimeTakenSec || 0) + update.time;
+      transactionPromises.push(
+        prisma.userSubjectPerformance.upsert({
+          where: { userId_subjectId: { userId: uid, subjectId } },
+          create: {
+            userId: uid,
+            subjectId,
+            totalAttempted: update.attempted,
+            totalCorrect: update.correct,
+            totalIncorrect: update.attempted - update.correct,
+            totalTimeTakenSec: update.time,
+            accuracyPercent: (update.correct / update.attempted) * 100,
+            avgTimePerQuestionSec:
+              update.attempted > 0 ? update.time / update.attempted : 0,
+          },
+          update: {
+            totalAttempted: { increment: update.attempted },
+            totalCorrect: { increment: update.correct },
+            totalIncorrect: { increment: update.attempted - update.correct },
+            totalTimeTakenSec: { increment: update.time },
+            accuracyPercent:
+              newTotalAttempted > 0
+                ? (newTotalCorrect / newTotalAttempted) * 100
+                : 0,
+            avgTimePerQuestionSec:
+              newTotalAttempted > 0 ? newTotalTimeTaken / newTotalAttempted : 0,
+          },
+        })
+      );
+    }
+    console.log(
+      `Added ${subjectUpdates.size} subject performance updates to transaction`
+    );
+
     // Promise 5: Update the final test summary (THIS IS THE CRITICAL ONE)
     const { marksPerCorrect, negativeMarksPerIncorrect } = testInstance.exam;
     const finalScore =
@@ -944,13 +1018,16 @@ const submitPyqTest = async (req: Request, res: Response) => {
 
     // --- PHASE 6: BACKGROUND AGGREGATE UPDATES (FIRE-AND-FORGET) ---
     setImmediate(() => {
-      if (topicIds.length > 0) {
-        updateGlobalTopicAverages(topicIds).catch(console.error);
-      }
-      if (subtopicIds.length > 0) {
-        updateGlobalSubtopicAverages(subtopicIds).catch(console.error);
-      }
       updateUserOverallAverage(uid).catch(console.error);
+      if (topicIds.length > 0)
+        updateGlobalTopicAverages(topicIds).catch(console.error);
+      if (subtopicIds.length > 0)
+        updateGlobalSubtopicAverages(subtopicIds).catch(console.error);
+      // ADDED:
+      if (subjectIds.length > 0) {
+        // Assuming this utility function exists
+        updateGlobalSubjectAverages(subjectIds).catch(console.error);
+      }
     });
 
     // --- PHASE 7: RESPOND TO USER ---

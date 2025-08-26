@@ -534,18 +534,40 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
 
     const questions = await prisma.question.findMany({
       where: { id: { in: questionIds } },
-      include: { subtopic: { select: { id: true, topicId: true } } },
+      include: {
+        subtopic: {
+          select: {
+            id: true,
+            topicId: true,
+            topic: {
+              select: {
+                subjectId: true,
+              },
+            },
+          },
+        },
+      },
     });
+
     const questionsMap = new Map(questions.map((q) => [q.id, q]));
+
+    const topicToSubjectMap = new Map<number, number>();
+    questions.forEach((q) => {
+      if (q.subtopic?.topic) {
+        topicToSubjectMap.set(q.subtopic.topicId, q.subtopic.topic.subjectId);
+      }
+    });
 
     // Get unique IDs for topics and subtopics for later updates
     const topicIds = [...new Set(questions.map((q) => q.subtopic.topicId))];
     const subtopicIds = [...new Set(questions.map((q) => q.subtopic.id))];
+    const subjectIds = [...new Set(topicToSubjectMap.values())];
 
     const [
       currentTopicPerfs,
       currentSubtopicPerfs,
       currentTopicDifficultyPerfs,
+      currentSubjectPerfs,
     ] = await Promise.all([
       prisma.userTopicPerformance.findMany({
         where: { userId: uid, topicId: { in: topicIds } },
@@ -556,17 +578,25 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
       prisma.userTopicDifficultyPerformance.findMany({
         where: { userId: uid, topicId: { in: topicIds } },
       }),
+      prisma.userSubjectPerformance.findMany({
+        where: { userId: uid, subjectId: { in: subjectIds } },
+      }),
     ]);
 
-    const topicPerfMap = new Map(currentTopicPerfs.map((p) => [p.topicId, p]));
+    const topicPerfMap = new Map(
+      currentTopicPerfs.map((p: any) => [p.topicId, p])
+    );
     const subtopicPerfMap = new Map(
-      currentSubtopicPerfs.map((p) => [p.subtopicId, p])
+      currentSubtopicPerfs.map((p: any) => [p.subtopicId, p])
     );
     const topicDifficultyPerfMap = new Map(
-      currentTopicDifficultyPerfs.map((p) => [
+      currentTopicDifficultyPerfs.map((p: any) => [
         `${p.topicId}-${p.difficultyLevel}`,
         p,
       ])
+    );
+    const subjectPerfMap = new Map(
+      currentSubjectPerfs.map((p: any) => [p.subjectId, p])
     );
 
     // --- PHASE 3: ANSWER PROCESSING & AGGREGATION ---
@@ -655,6 +685,58 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
     transactionPromises.push(
       prisma.userTestAnswer.createMany({ data: userTestAnswerPayloads })
     );
+
+    const subjectUpdates = new Map<
+      number,
+      { attempted: number; correct: number; time: number }
+    >();
+    for (const [topicId, update] of topicUpdates.entries()) {
+      const subjectId = topicToSubjectMap.get(topicId);
+      if (subjectId) {
+        const subjectUpdate = subjectUpdates.get(subjectId) || {
+          attempted: 0,
+          correct: 0,
+          time: 0,
+        };
+        subjectUpdate.attempted += update.attempted;
+        subjectUpdate.correct += update.correct;
+        subjectUpdate.time += update.time;
+        subjectUpdates.set(subjectId, subjectUpdate);
+      }
+    }
+
+    for (const [subjectId, update] of subjectUpdates.entries()) {
+      const currentPerf = subjectPerfMap.get(subjectId);
+      const newTotalAttempted =
+        (currentPerf?.totalAttempted || 0) + update.attempted;
+      const newTotalCorrect = (currentPerf?.totalCorrect || 0) + update.correct;
+      const newTotalTimeTaken =
+        (currentPerf?.totalTimeTakenSec || 0) + update.time;
+      transactionPromises.push(
+        prisma.userSubjectPerformance.upsert({
+          where: { userId_subjectId: { userId: uid, subjectId } },
+          create: {
+            userId: uid,
+            subjectId,
+            totalAttempted: update.attempted,
+            totalCorrect: update.correct,
+            totalIncorrect: update.attempted - update.correct,
+            totalTimeTakenSec: update.time,
+            accuracyPercent: (update.correct / update.attempted) * 100,
+          },
+          update: {
+            totalAttempted: { increment: update.attempted },
+            totalCorrect: { increment: update.correct },
+            totalIncorrect: { increment: update.attempted - update.correct },
+            totalTimeTakenSec: { increment: update.time },
+            accuracyPercent:
+              newTotalAttempted > 0
+                ? (newTotalCorrect / newTotalAttempted) * 100
+                : 0,
+          },
+        })
+      );
+    }
 
     // Promise 2: Upsert UserTopicPerformance records
     for (const [topicId, update] of topicUpdates.entries()) {
@@ -855,6 +937,7 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
     void updateGlobalTopicAverages(topicIds);
     void updateGlobalSubtopicAverages(subtopicIds);
     void updateUserOverallAverage(uid);
+    void updateGlobalSubjectAverages(subjectIds);
 
     // --- PHASE 7: RESPOND TO USER ---
     const accuracyPercent =
@@ -1362,6 +1445,7 @@ import {
   updateGlobalTopicAverages,
   updateGlobalSubtopicAverages,
   updateUserOverallAverage,
+  updateGlobalSubjectAverages,
 } from "../utils/globalStatsUpdater.js";
 
 // ROUTE 9: NEW - GET /weakness/results/:testInstanceId/summary
