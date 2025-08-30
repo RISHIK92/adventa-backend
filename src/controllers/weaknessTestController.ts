@@ -407,6 +407,12 @@ const getTestDataForTaking = async (req: Request, res: Response) => {
 
     const { exam, testQuestions } = testInstance;
 
+    if (!exam) {
+      return res
+        .status(500)
+        .json({ success: false, error: "Associated exam not found." });
+    }
+
     if (testInstance.completedAt) {
       return res.status(403).json({
         success: false,
@@ -1414,6 +1420,11 @@ const getWeaknessTestHistory = async (req: Request, res: Response) => {
     }
 
     const formattedHistory = pastTests.map((test) => {
+      if (!test.exam) {
+        throw new Error(
+          `Exam details not found for test instance ID: ${test.id}`
+        );
+      }
       const avgTimePerStandardQuestion =
         (test.exam.durationInMinutes * 60) / test.exam.totalQuestions;
       const timeLimitInSeconds = Math.round(
@@ -1479,7 +1490,14 @@ const getWeaknessTestSummary = async (req: Request, res: Response) => {
       )
       .join("\n");
 
+    if (!testInstance.exam) {
+      return res
+        .status(400)
+        .json({ error: "Cannot generate summary for exam-based tests." });
+    }
+
     const { systemPrompt, userPrompt } = generateWeaknessPrompt(
+      //@ts-ignore
       testInstance,
       userDataString
     );

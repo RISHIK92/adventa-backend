@@ -421,6 +421,13 @@ const getPyqDataForTaking = async (req: Request, res: Response) => {
 
     const { exam, testQuestions } = testInstance;
 
+    if (!exam) {
+      return;
+      res
+        .status(500)
+        .json({ success: false, error: "Associated exam not found." });
+    }
+
     if (testInstance.completedAt) {
       return res.status(403).json({
         success: false,
@@ -433,6 +440,10 @@ const getPyqDataForTaking = async (req: Request, res: Response) => {
     const timeLimit = Math.round(
       testInstance.totalQuestions * avgTimePerQuestion
     );
+
+    if (!testInstance.exam) {
+      return;
+    }
     const totalTimeLimitSec = testInstance.exam.durationInMinutes * 60;
 
     const redisKey = `progress:${testInstanceId}`;

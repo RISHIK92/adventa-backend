@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,147 +11,124 @@ datasource db {
 }
 
 model User {
-  id            String      @id
-  email         String?     @unique
-  password      String?
-  fullName      String?
-  primaryExamId Int?
-  personaTag    PersonaTag? // Enum for initial experience tailoring
+  id                     String                    @id
+  email                  String?                   @unique
+  password               String?
+  fullName               String?
+  primaryExamId          Int?
+  personaTag             PersonaTag?
 
-  // ADDED FOR FEATURE: User score/rank
-  score Decimal? @default(0.0) @db.Decimal(10, 2)
+  score                  Decimal?                  @default(0.0) @db.Decimal(10, 2)
+  overallAverageAccuracy Decimal?                  @default(0.00) @db.Decimal(5, 2)
+  createdAt              DateTime                  @default(now())
 
-  overallAverageAccuracy Decimal? @default(0.00) @db.Decimal(5, 2)
-
-  createdAt DateTime @default(now())
-
-  primaryExam Exam? @relation(fields: [primaryExamId], references: [id])
-
-  // Performance Summaries
-  subtopicPerformance  UserSubtopicPerformance[]
-  examSummaries        UserExamOverallSummary[]
-  testInstances        UserTestInstanceSummary[]
-  UserTestAnswer       UserTestAnswer[]
-  UserTopicPerformance UserTopicPerformance[]
-
-  // --- Relationships to Group Features (Existing & New) ---
-  studyRooms           StudyRoomMember[]
-  createdStudyRooms    StudyRoom[]            @relation("StudyRoomAdmins")
-  GroupTest            GroupTest[]
-  GroupTestParticipant GroupTestParticipant[]
-
-  // --- ADDED TO FIX RELATION ERRORS ---
-  sentInvitations     StudyRoomInvitation[] @relation("Inviter")
-  receivedInvitations StudyRoomInvitation[] @relation("Invitee")
-  reviews             StudyRoomReview[]
-  sentChallenges      Challenge[]           @relation("Challenger")
-  receivedChallenges  Challenge[]           @relation("Challenged")
-  wonChallenges       Challenge[]           @relation("Winner") // Back-relation for Challenge winner
-  discussionThreads   DiscussionThread[]
-  discussionReplies   DiscussionReply[] // This fixes the specific error you received
-  discussionLikes     DiscussionLike[]
-  badges              UserBadge[]
-
-  ChallengeParticipant ChallengeParticipant[]
-
-  UserSubjectPerformance UserSubjectPerformance[]
-
-  StudyRoom StudyRoom[] @relation("StudyRoomCreator")
+  primaryExam                Exam?                       @relation(fields: [primaryExamId], references: [id])
+  subtopicPerformance        UserSubtopicPerformance[]
+  examSummaries              UserExamOverallSummary[]
+  testInstances              UserTestInstanceSummary[]
+  UserTestAnswer             UserTestAnswer[]
+  UserTopicPerformance       UserTopicPerformance[]
+  studyRooms                 StudyRoomMember[]
+  createdStudyRooms          StudyRoom[]                 @relation("StudyRoomAdmins")
+  sentInvitations            StudyRoomInvitation[]       @relation("Inviter")
+  receivedInvitations        StudyRoomInvitation[]       @relation("Invitee")
+  reviews                    StudyRoomReview[]
+  sentChallenges             Challenge[]                 @relation("Challenger")
+  receivedChallenges         Challenge[]                 @relation("Challenged")
+  wonChallenges              Challenge[]                 @relation("Winner")
+  discussionThreads          DiscussionThread[]
+  discussionReplies          DiscussionReply[]
+  discussionLikes            DiscussionLike[]
+  badges                     UserBadge[]
+  ChallengeParticipant       ChallengeParticipant[]
+  UserSubjectPerformance     UserSubjectPerformance[]
+  createdScheduledGroupTests ScheduledGroupTest[]
+  StudyRoom                  StudyRoom[]                 @relation("StudyRoomCreator")
+  memberStats                UserGroupStats[]
+  challengeAnswers ChallengeAnswer[]
 }
 
 model Exam {
-  id   Int    @id @default(autoincrement())
-  name String @unique // e.g., 'JEE Main & Advanced', 'NEET UG'
+  id                        Int                       @id @default(autoincrement())
+  name                      String                    @unique
+  durationInMinutes         Int
+  totalQuestions            Int
+  marksPerCorrect           Int                       @default(4)
+  negativeMarksPerIncorrect Int                       @default(1)
+  marksPerUnattempted       Int                       @default(0)
 
-  durationInMinutes Int // e.g., 180
-  totalQuestions    Int // e.g., 90
-
-  marksPerCorrect           Int @default(4)
-  // Store as a positive integer. The application logic will subtract it.
-  negativeMarksPerIncorrect Int @default(1)
-  marksPerUnattempted       Int @default(0)
-
-  studyRooms StudyRoomExam[]
-
+  studyRooms    StudyRoomExam[]
   examSessions  ExamSession[]
   testInstances UserTestInstanceSummary[]
   subjects      Subject[]
   users         User[]
   examSummaries UserExamOverallSummary[]
-
-  StudyRoom StudyRoom[]
+  StudyRoom     StudyRoom[]
 }
 
 model ExamSession {
-  id     Int    @id @default(autoincrement())
-  examId Int
-  name   String // e.g., "2024 - 27th Jan Shift 1", "2023 Phase 2", "2022"
-
-  // This is the date the exam took place
-  sessionDate DateTime?
-
+  id                     Int                 @id @default(autoincrement())
+  examId                 Int
+  name                   String
+  sessionDate            DateTime?
   scorePercentileMapping Json?
 
-  // --- Relationships ---
-  exam           Exam               @relation(fields: [examId], references: [id])
-  questions      Question[] // An exam session has many questions
+  exam           Exam                @relation(fields: [examId], references: [id])
+  questions      Question[]
   generatedPaper GeneratedPyqPaper?
-
-  testInstances UserTestInstanceSummary[]
+  testInstances  UserTestInstanceSummary[]
 
   @@unique([examId, name])
   @@index([examId])
 }
 
 model GeneratedPyqPaper {
-  id            Int  @id @default(autoincrement())
-  examSessionId Int  @unique // A PYQ session has only ONE official generated paper
-  questionOrder Json // Stores an array of question IDs in order, e.g., [101, 102, 205, ...]
+  id            Int         @id @default(autoincrement())
+  examSessionId Int         @unique
+  questionOrder Json
 
   examSession ExamSession @relation(fields: [examSessionId], references: [id])
 }
 
 model Subject {
-  id     Int    @id @default(autoincrement())
-  examId Int
-  name   String // e.g., 'Physics', 'Chemistry'
+  id                     Int                         @id @default(autoincrement())
+  examId                 Int
+  name                   String
+  averageAccuracyPercent Decimal?                    @db.Decimal(5, 2)
 
-  studyRooms StudyRoomSubject[]
-  averageAccuracyPercent Decimal? @db.Decimal(5, 2)
-
-  exam   Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
-  topics Topic[]
+  exam                Exam                        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  topics              Topic[]
+  studyRooms          StudyRoomSubject[]
+  UserSubjectPerformance UserSubjectPerformance[]
+  scheduledGroupTests ScheduledGroupTestSubject[]
 
   @@unique([examId, name])
-  UserSubjectPerformance UserSubjectPerformance[]
 }
 
 model Topic {
-  id        Int    @id @default(autoincrement())
-  subjectId Int
-  name      String // e.g., 'Rotational Motion', 'Organic Chemistry'
+  id                     Int                      @id @default(autoincrement())
+  subjectId              Int
+  name                   String
+  averageAccuracyPercent Decimal?                 @default(0.00) @db.Decimal(5, 2)
 
-  averageAccuracyPercent Decimal? @default(0.00) @db.Decimal(5, 2)
-
-  // --- Relationships ---
   userPerformance   UserTopicPerformance[]
-  subject           Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subject           Subject                  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   subtopics         Subtopic[]
   TestTopicSnapshot TestTopicSnapshot[]
+  challenges        Challenge[]
 
   @@unique([subjectId, name])
   @@index([subjectId])
 }
 
 model Subtopic {
-  id      Int    @id @default(autoincrement())
-  topicId Int
-  name    String // e.g., 'Moment of Inertia'
-
-  averageAccuracyPercent Decimal @default(0.00) @db.Decimal(5, 2)
+  id                     Int                       @id @default(autoincrement())
+  topicId                Int
+  name                   String
+  averageAccuracyPercent Decimal                   @default(0.00) @db.Decimal(5, 2)
 
   topic                 Topic                     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  questions             Question[] // A subtopic has many questions
+  questions             Question[]
   userPerformance       UserSubtopicPerformance[]
   testSubtopicSnapshots TestSubtopicSnapshot[]
 
@@ -163,47 +137,42 @@ model Subtopic {
 }
 
 model Question {
-  id            Int  @id @default(autoincrement())
-  subtopicId    Int
-  examSessionId Int?
-
-  question      String
-  shortcut      String?
-  equations     String? // e.g., "F = ma", "E = mc^2"
-  imageUrl      String? // URL to an image, if applicable
-  imagesolurl   String? // URL to an image solution, if applicable
-  options       Json? // e.g., {"A": "...", "B": "..."}
-  correctOption String
-  solution      String
-
-  // Metadata & ML Features
-  humanDifficultyLevel DifficultyLevel // Enum for human assessment
-  questionType         String[] // Array of strings for types
-  wordCountQuestion    Int?
-  wordCountSolution    Int?
-  averageTimeSec       Int? // Average time taken to solve this question
-  Report               Boolean?
-  ReportReason         String?
-
+  id                       Int                    @id @default(autoincrement())
+  subtopicId               Int
+  examSessionId            Int?
+  question                 String
+  shortcut                 String?
+  equations                String?
+  imageUrl                 String?
+  imagesolurl              String?
+  options                  Json?
+  correctOption            String
+  solution                 String
+  humanDifficultyLevel     DifficultyLevel
+  questionType             String[]
+  wordCountQuestion        Int?
+  wordCountSolution        Int?
+  averageTimeSec           Int?
+  Report                   Boolean?
+  ReportReason             String?
   predictedDifficultyScore Float?
   platformAvgTimeSec       Int?
 
-  // --- Relationships ---
-  examSession    ExamSession?           @relation(fields: [examSessionId], references: [id])
-  subtopic       Subtopic               @relation(fields: [subtopicId], references: [id])
-  UserTestAnswer UserTestAnswer[]
-  testInstances  TestInstanceQuestion[]
-
-  discussionThreads DiscussionThread[] // This links back to the DiscussionThread model
+  examSession       ExamSession?           @relation(fields: [examSessionId], references: [id])
+  subtopic          Subtopic               @relation(fields: [subtopicId], references: [id])
+  UserTestAnswer    UserTestAnswer[]
+  testInstances     TestInstanceQuestion[]
+  discussionThreads DiscussionThread[]
+  challengeAnswers  ChallengeAnswer[]
 
   @@index([examSessionId])
 }
 
 model TestInstanceQuestion {
-  id             String @id @default(cuid())
+  id             String                @id @default(cuid())
   testInstanceId String
   questionId     Int
-  order          Int // To maintain the question order
+  order          Int
 
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id])
   question     Question                @relation(fields: [questionId], references: [id])
@@ -213,15 +182,13 @@ model TestInstanceQuestion {
 }
 
 model UserSubjectPerformance {
-  userId    String
-  subjectId Int
-
-  totalAttempted    Int     @default(0)
-  totalCorrect      Int     @default(0)
-  totalIncorrect    Int     @default(0)
-  totalTimeTakenSec Int     @default(0)
-  accuracyPercent   Decimal @default(0.00) @db.Decimal(5, 2)
-
+  userId                String
+  subjectId             Int
+  totalAttempted        Int     @default(0)
+  totalCorrect          Int     @default(0)
+  totalIncorrect        Int     @default(0)
+  totalTimeTakenSec     Int     @default(0)
+  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
   avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -231,24 +198,18 @@ model UserSubjectPerformance {
 }
 
 model UserTopicPerformance {
-  userId  String
-  topicId Int
+  userId                String
+  topicId               Int
+  totalAttempted        Int      @default(0)
+  totalCorrect          Int      @default(0)
+  totalIncorrect        Int      @default(0)
+  totalTimeTakenSec     Int      @default(0)
+  accuracyPercent       Decimal  @default(0.00) @db.Decimal(5, 2)
+  avgTimePerQuestionSec Decimal  @default(0.00) @db.Decimal(10, 2)
+  lastUpdatedAt         DateTime @updatedAt
 
-  // Performance Metrics (aggregated from subtopics)
-  totalAttempted    Int @default(0)
-  totalCorrect      Int @default(0)
-  totalIncorrect    Int @default(0)
-  totalTimeTakenSec Int @default(0)
-
-  // Derived Fields for fast queries
-  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
-  avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
-
-  lastUpdatedAt DateTime @updatedAt
-
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
-
+  user                   User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic                  Topic                          @relation(fields: [topicId], references: [id], onDelete: Cascade)
   difficultyPerformances UserTopicDifficultyPerformance[]
 
   @@id([userId, topicId])
@@ -256,20 +217,15 @@ model UserTopicPerformance {
 }
 
 model UserTopicDifficultyPerformance {
-  userId          String
-  topicId         Int
-  difficultyLevel DifficultyLevel
-
-  // Core performance metrics for this specific difficulty
-  totalAttempted    Int @default(0)
-  totalCorrect      Int @default(0)
-  totalTimeTakenSec Int @default(0)
-
-  // Derived fields for fast queries at the difficulty level
-  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
-  avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
-
-  lastUpdatedAt DateTime @updatedAt
+  userId                String
+  topicId               Int
+  difficultyLevel       DifficultyLevel
+  totalAttempted        Int             @default(0)
+  totalCorrect          Int             @default(0)
+  totalTimeTakenSec     Int             @default(0)
+  accuracyPercent       Decimal         @default(0.00) @db.Decimal(5, 2)
+  avgTimePerQuestionSec Decimal         @default(0.00) @db.Decimal(10, 2)
+  lastUpdatedAt         DateTime        @updatedAt
 
   topicPerformance UserTopicPerformance @relation(fields: [userId, topicId], references: [userId, topicId], onDelete: Cascade)
 
@@ -277,41 +233,31 @@ model UserTopicDifficultyPerformance {
 }
 
 model UserSubtopicPerformance {
-  userId     String
-  subtopicId Int
+  userId                String
+  subtopicId            Int
+  totalAttempted        Int      @default(0)
+  totalCorrect          Int      @default(0)
+  totalIncorrect        Int      @default(0)
+  totalTimeTakenSec     Int      @default(0)
+  accuracyPercent       Decimal  @default(0.00) @db.Decimal(5, 2)
+  avgTimePerQuestionSec Decimal  @default(0.00) @db.Decimal(10, 2)
+  lastUpdatedAt         DateTime @updatedAt
 
-  // Performance Metrics
-  totalAttempted    Int @default(0)
-  totalCorrect      Int @default(0)
-  totalIncorrect    Int @default(0)
-  totalTimeTakenSec Int @default(0)
-
-  // Derived Fields for fast queries
-  accuracyPercent       Decimal @default(0.00) @db.Decimal(5, 2)
-  avgTimePerQuestionSec Decimal @default(0.00) @db.Decimal(10, 2)
-
-  // Timestamps
-  lastUpdatedAt DateTime @updatedAt
-
-  // --- Relationships & Indexes ---
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   subtopic Subtopic @relation(fields: [subtopicId], references: [id], onDelete: Cascade)
 
-  @@id([userId, subtopicId]) // Composite Primary Key
-  @@index([userId, accuracyPercent]) // For fast lookups of a user's weakest topics
+  @@id([userId, subtopicId])
+  @@index([userId, accuracyPercent])
   @@index([userId, subtopicId])
 }
 
 model TestTopicSnapshot {
-  id             String @id @default(uuid())
-  testInstanceId String
-  topicId        Int
-
-  // The user's performance METRICS AT THE MOMENT OF TEST CREATION
-  accuracyPercentBefore Decimal @db.Decimal(5, 2)
+  id                    String                @id @default(uuid())
+  testInstanceId        String
+  topicId               Int
+  accuracyPercentBefore Decimal               @db.Decimal(5, 2)
   totalAttemptedBefore  Int
 
-  // --- Relationships ---
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
   topic        Topic                   @relation(fields: [topicId], references: [id])
 
@@ -319,75 +265,63 @@ model TestTopicSnapshot {
 }
 
 model TestSubtopicSnapshot {
-  id             String @id @default(uuid())
-  testInstanceId String
-  subtopicId     Int
-
-  // The user's performance METRICS AT THE MOMENT OF TEST CREATION
-  accuracyPercentBefore Decimal @db.Decimal(5, 2)
+  id                    String                @id @default(uuid())
+  testInstanceId        String
+  subtopicId            Int
+  accuracyPercentBefore Decimal               @db.Decimal(5, 2)
   totalAttemptedBefore  Int
 
-  // --- Relationships ---
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
   subtopic     Subtopic                @relation(fields: [subtopicId], references: [id])
 
-  @@unique([testInstanceId, subtopicId]) // Ensure one snapshot per subtopic per test
+  @@unique([testInstanceId, subtopicId])
 }
 
 model UserExamOverallSummary {
-  userId String
-  examId Int
+  userId                  String
+  examId                  Int
+  totalQuestionsAttempted Int      @default(0)
+  totalCorrect            Int      @default(0)
+  totalIncorrect          Int      @default(0)
+  overallAccuracyPercent  Decimal  @default(0.00) @db.Decimal(5, 2)
+  totalMockTestsCompleted Int      @default(0)
+  lastUpdatedAt           DateTime @updatedAt
 
-  // Overall Performance
-  totalQuestionsAttempted Int     @default(0)
-  totalCorrect            Int     @default(0)
-  totalIncorrect          Int     @default(0)
-  overallAccuracyPercent  Decimal @default(0.00) @db.Decimal(5, 2)
-
-  // Engagement Metrics
-  totalMockTestsCompleted Int @default(0)
-
-  lastUpdatedAt DateTime @updatedAt
-
-  // --- Relationships ---
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
 
-  @@id([userId, examId]) // Composite Primary Key
+  @@id([userId, examId])
 }
 
-// Stores the result of every single test a user takes.
 model UserTestInstanceSummary {
-  id       String   @id @default(uuid())
-  userId   String
-  examId   Int
-  testName String?
-  testType TestType
-
-  // Overall test performance
+  id             String    @id @default(uuid())
+  userId         String
+  examId         Int?
+  testName       String?
+  testType       TestType
   score          Int
   totalMarks     Int
-  percentile     Decimal? @db.Decimal(5, 2)
+  percentile     Decimal?  @db.Decimal(5, 2)
   totalQuestions Int
   numCorrect     Int
   numIncorrect   Int
   numUnattempted Int
   timeTakenSec   Int
+  examSessionId  Int?
+  completedAt    DateTime?
 
-  examSessionId Int?
+  scheduledGroupTestId String?
 
-  completedAt DateTime?
+  exam             Exam?                       @relation(fields: [examId], references: [id])
+  user             User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers          UserTestAnswer[]
+  testQuestions    TestInstanceQuestion[]
+  examSession      ExamSession?                @relation(fields: [examSessionId], references: [id])
+  topicSnapshots   TestTopicSnapshot[]
+  subtopicSnapshots TestSubtopicSnapshot[]
 
-  exam Exam @relation(fields: [examId], references: [id])
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  answers       UserTestAnswer[]
-  testQuestions TestInstanceQuestion[]
-  examSession   ExamSession?           @relation(fields: [examSessionId], references: [id])
-
-  topicSnapshots       TestTopicSnapshot[]
-  subtopicSnapshots    TestSubtopicSnapshot[]
-  GroupTestParticipant GroupTestParticipant?
+  challengeParticipant ChallengeParticipant?
+  scheduledGroupTest   ScheduledGroupTest?   @relation(fields: [scheduledGroupTestId], references: [id])
 
   @@index([userId, completedAt(sort: Desc)])
   @@index([userId, examId, testType, completedAt(sort: Desc)])
@@ -395,15 +329,14 @@ model UserTestInstanceSummary {
 }
 
 model UserTestAnswer {
-  id             String @id @default(uuid())
+  id             String                @id @default(uuid())
   testInstanceId String
   questionId     Int
   userId         String
-
-  userAnswer   String?
-  isCorrect    Boolean
-  status       AnswerStatus
-  timeTakenSec Int
+  userAnswer     String?
+  isCorrect      Boolean
+  status         AnswerStatus
+  timeTakenSec   Int
 
   testInstance UserTestInstanceSummary @relation(fields: [testInstanceId], references: [id], onDelete: Cascade)
   question     Question                @relation(fields: [questionId], references: [id])
@@ -414,41 +347,35 @@ model UserTestAnswer {
 }
 
 model StudyRoom {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
+  id                  String                @id @default(uuid())
+  name                String
+  description         String?
+  createdAt           DateTime              @default(now())
+  createdBy           String
+  score               Decimal?              @default(0.0) @db.Decimal(10, 2)
+  examId              Int?
+  lastActivityAt      DateTime?
+  privacy             StudyRoomPrivacy      @default(PUBLIC)
+  maxMembers          Int?
+  memberCount         Int                   @default(1)
+  averageRating       Decimal?              @default(0.0) @db.Decimal(2, 1)
+  reviewCount         Int                   @default(0)
 
-  // --- Relationships ---
-  members           StudyRoomMember[]
-  groupTests        GroupTest[]
-  admins            User[]                @relation("StudyRoomAdmins")
-  invitations       StudyRoomInvitation[]
-  inviteCodes       StudyRoomInvite[]
-  reviews           StudyRoomReview[]
-  discussionThreads DiscussionThread[]
-  challenges        Challenge[]
-  userBadges        UserBadge[] 
-
-  exams    StudyRoomExam[]
-  subjects StudyRoomSubject[]
-
-  // --- Ownership ---
-  createdBy   String
-  creator     User       @relation("StudyRoomCreator", fields: [createdBy], references: [id])
-
-  // --- Ranking / Metadata ---
-  score         Decimal?         @default(0.0) @db.Decimal(10, 2)
-  examId        Int?
-  exam          Exam?            @relation(fields: [examId], references: [id])
-  lastActivityAt DateTime?
-  privacy       StudyRoomPrivacy @default(PUBLIC)
-  maxMembers    Int?
-  memberCount   Int              @default(1)
-  averageRating Decimal?         @default(0.0) @db.Decimal(2, 1)
-  reviewCount   Int              @default(0)
+  members             StudyRoomMember[]
+  admins              User[]                @relation("StudyRoomAdmins")
+  invitations         StudyRoomInvitation[]
+  inviteCodes         StudyRoomInvite[]
+  reviews             StudyRoomReview[]
+  discussionThreads   DiscussionThread[]
+  challenges          Challenge[]
+  userBadges          UserBadge[]
+  memberStats         UserGroupStats[]
+  exams               StudyRoomExam[]
+  subjects            StudyRoomSubject[]
+  scheduledGroupTests ScheduledGroupTest[]
+  creator             User                  @relation("StudyRoomCreator", fields: [createdBy], references: [id])
+  exam                Exam?                 @relation(fields: [examId], references: [id])
 }
-
 
 model StudyRoomExam {
   studyRoomId String
@@ -475,18 +402,26 @@ model StudyRoomMember {
   userId      String
   role        StudyRoomRole @default(MEMBER)
   joinedAt    DateTime      @default(now())
+  reputation  Int           @default(0)
 
-  // ADDED FOR FEATURE: Member Analytics & Reputation
-  reputation Int @default(0) // For discussion board scoring
-
-  // --- Relationships ---
   studyRoom StudyRoom @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([studyRoomId, userId])
 }
 
-// ADDED FOR FEATURE: Invite-only groups and invitation management
+model UserGroupStats {
+  userId      String
+  studyRoomId String
+  streak      Int @default(0)
+  totalPoints Int @default(0)
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studyRoom StudyRoom @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
+
+  @@id([userId, studyRoomId])
+}
+
 model StudyRoomInvitation {
   id          String           @id @default(uuid())
   studyRoomId String
@@ -500,10 +435,9 @@ model StudyRoomInvitation {
   inviter   User      @relation("Inviter", fields: [inviterId], references: [id])
   invitee   User      @relation("Invitee", fields: [inviteeId], references: [id])
 
-  @@unique([studyRoomId, inviteeId]) // A user can only have one pending invite per room
+  @@unique([studyRoomId, inviteeId])
 }
 
-// ADDED FOR FEATURE: Sharable invite links/codes
 model StudyRoomInvite {
   id          String    @id @default(cuid())
   code        String    @unique
@@ -515,12 +449,11 @@ model StudyRoomInvite {
   studyRoom StudyRoom @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
 }
 
-// ADDED FOR FEATURE: Group ratings and reviews
 model StudyRoomReview {
   id          String   @id @default(uuid())
   studyRoomId String
   userId      String
-  rating      Int // e.g., 1 to 5
+  rating      Int
   comment     String?
   createdAt   DateTime @default(now())
 
@@ -530,144 +463,113 @@ model StudyRoomReview {
   @@unique([studyRoomId, userId])
 }
 
-// --- MODELS FOR GROUP TESTS & CHALLENGES (Modified & Expanded) ---
-
-model GroupTest {
-  id           String   @id @default(uuid())
-  studyRoomId  String
-  createdById  String
-  testSettings Json
-  createdAt    DateTime @default(now())
-
-  // MODIFIED FOR FEATURE: Mock Test Scheduler & Contest Mode
-  startTime             DateTime? // Enforced start time for contests
-  lateJoinWindowMinutes Int?      @default(5)
-  isContestMode         Boolean   @default(false)
-  randomizeQuestions    Boolean   @default(false)
-
-  // --- Relationships ---
-  studyRoom    StudyRoom              @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
-  createdBy    User                   @relation(fields: [createdById], references: [id])
-  participants GroupTestParticipant[]
-  report       GroupTestReport?
-}
-
-model GroupTestReport {
-  id                          String   @id @default(uuid())
-  groupTestId                 String   @unique
-  generatedAt                 DateTime @default(now())
-  groupAverageScore           Float
-  groupAverageTimePerQuestion Float
-  groupAverageAccuracy        Float
-
-  topicPerformanceComparison Json
-  // e.g., { "topicId1": { "groupAvg": 75.5, "userScores": { "userId1": 80, "userId2": 70 } }, ... }
-  aiSummary                  String
-  groupTest                  GroupTest @relation(fields: [groupTestId], references: [id], onDelete: Cascade)
-}
-
-model GroupTestParticipant {
-  groupTestId        String
-  userId             String
-  userTestInstanceId String @unique
-
-  // ADDED FOR FEATURE: Prediction Games
-  predictedScore Int?
-  predictedConfidence Int?
-
-  // --- Relationships ---
-  groupTest        GroupTest               @relation(fields: [groupTestId], references: [id], onDelete: Cascade)
-  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userTestInstance UserTestInstanceSummary @relation(fields: [userTestInstanceId], references: [id])
-
-  @@id([groupTestId, userId])
-}
-
-// ADDED FOR FEATURE: 1-v-1 Challenges
 model Challenge {
   id           String          @id @default(uuid())
   studyRoomId  String
   challengerId String
-  challengedId String
+  challengedId String?
+
+  title        String          // Add a title for the challenge
+  topicId      Int             // Store the specific topic the challenge is based on
+  difficulty   DifficultyLevel // Store the difficulty level
+  timeLimit    Int  
+
   subtopicId   Int?
   status       ChallengeStatus @default(PENDING_ACCEPTANCE)
   winnerId     String?
   createdAt    DateTime        @default(now())
   completedAt  DateTime?
 
-  studyRoom  StudyRoom @relation(fields: [studyRoomId], references: [id])
-  challenger User      @relation("Challenger", fields: [challengerId], references: [id])
-  challenged User      @relation("Challenged", fields: [challengedId], references: [id])
-  
-  winner     User?     @relation("Winner", fields: [winnerId], references: [id])
+  generatedQuestionIds Int[]
 
-  ChallengeParticipant ChallengeParticipant[]
+  topic      Topic     @relation(fields: [topicId], references: [id])
+  studyRoom            StudyRoom              @relation(fields: [studyRoomId], references: [id])
+  challenger           User                   @relation("Challenger", fields: [challengerId], references: [id])
+  challenged           User?                   @relation("Challenged", fields: [challengedId], references: [id])
+  winner               User?                  @relation("Winner", fields: [winnerId], references: [id])
+  Participants     ChallengeParticipant[]
+  challengeAnswers ChallengeAnswer[]
 }
 
 model ChallengeParticipant {
-  challengeId String
-  userId      String
+  challengeId         String
+  userId              String
+  status              ChallengeStatus @default(PENDING_ACCEPTANCE)
+  predictedScore      Int?
+  predictedConfidence Int?
+  finalScore          Int?
+  completedAt         DateTime?
+  userTestInstanceId  String? @unique
 
-  status               ChallengeStatus @default(PENDING_ACCEPTANCE)
-  predictedScore       Int?
-  predictedConfidence  Int?            // Confidence level from 0-100
-  finalScore           Int?
-  completedAt          DateTime?
+  score          Int?      // The final calculated score
+  timeTakenSec   Float?    // Total time spent
+  numCorrect     Int?
+  numIncorrect   Int?
+  numUnattempted Int?
+  hasCompleted   Boolean   @default(false)
 
   challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  testInstance UserTestInstanceSummary? @relation(fields: [userTestInstanceId], references: [id])
+
   @@id([challengeId, userId])
 }
 
-// --- MODELS FOR DISCUSSION & GAMIFICATION ---
+model ChallengeAnswer {
+  id           Int      @id @default(autoincrement())
+  
+  challengeId  String
+  challenge    Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
 
-// ADDED FOR FEATURE: Discussion Board
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  questionId   Int
+  question     Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  // --- Data Fields ---
+  userAnswer   String?
+  timeTakenSec Float
+  isCorrect    Boolean
+
+  // Ensures a user can only answer a specific question in a challenge once
+  @@unique([challengeId, userId, questionId])
+}
+
 model DiscussionThread {
-  id          String   @id @default(uuid())
-  studyRoomId String
-  authorId    String
-  title       String
-  content     String
-  createdAt   DateTime @default(now())
-
-  // To link a discussion to a specific test question
-  questionId Int?
-
-  // To pin a "best answer"
+  id            String   @id @default(uuid())
+  studyRoomId   String
+  authorId      String
+  title         String
+  content       String
+  createdAt     DateTime @default(now())
+  questionId    Int?
   pinnedReplyId String?
 
-  studyRoom StudyRoom @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
-  author    User      @relation(fields: [authorId], references: [id])
-  question  Question? @relation(fields: [questionId], references: [id])
-
-  replies DiscussionReply[]
+  studyRoom StudyRoom       @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
+  author    User            @relation(fields: [authorId], references: [id])
+  question  Question?       @relation(fields: [questionId], references: [id])
+  replies   DiscussionReply[]
 
   @@index([studyRoomId, createdAt])
 }
 
-// ADDED FOR FEATURE: Discussion Board
 model DiscussionReply {
   id        String   @id @default(uuid())
   threadId  String
   authorId  String
   content   String
   createdAt DateTime @default(now())
+  parentId  String?
 
-  // For nested replies
-  parentId String?
-
-  thread DiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  author User             @relation(fields: [authorId], references: [id])
-
-  // --- THIS IS THE CORRECTED LINE ---
-  parent DiscussionReply? @relation("NestedReplies", fields: [parentId], references: [id], onDelete: NoAction)
-
+  thread  DiscussionThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author  User              @relation(fields: [authorId], references: [id])
+  parent  DiscussionReply?  @relation("NestedReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replies DiscussionReply[] @relation("NestedReplies")
   likes   DiscussionLike[]
 }
 
-// ADDED FOR FEATURE: Upvoting/Liking system for discussions
 model DiscussionLike {
   replyId String
   userId  String
@@ -678,21 +580,18 @@ model DiscussionLike {
   @@id([replyId, userId])
 }
 
-// ADDED FOR FEATURE: Badge System
 model Badge {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique // e.g., "Fastest Solver", "Consistency King"
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
   description String
   iconUrl     String?
-
-  userBadges UserBadge[]
+  userBadges  UserBadge[]
 }
 
-// ADDED FOR FEATURE: Join table for awarding badges
 model UserBadge {
   userId      String
   badgeId     Int
-  studyRoomId String? // Badge can be awarded in the context of a group
+  studyRoomId String?
   awardedAt   DateTime @default(now())
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -702,12 +601,46 @@ model UserBadge {
   @@id([userId, badgeId])
 }
 
+model ScheduledGroupTestSubject {
+  scheduledGroupTestId String
+  subjectId            Int
+
+  scheduledGroupTest ScheduledGroupTest @relation(fields: [scheduledGroupTestId], references: [id], onDelete: Cascade)
+  subject            Subject            @relation(fields: [subjectId], references: [id])
+
+  @@id([scheduledGroupTestId, subjectId])
+}
+
+model ScheduledGroupTest {
+  id                     String                      @id @default(uuid())
+  studyRoomId            String
+  createdById            String
+  name                   String
+  durationInMinutes      Int
+  totalQuestions         Int
+  scheduledStartTime     DateTime
+  difficultyDistribution Json
+  status                 ScheduledTestStatus         @default(SCHEDULED)
+  generatedQuestionIds   Json?
+
+  studyRoom     StudyRoom                    @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
+  createdBy     User                         @relation(fields: [createdById], references: [id])
+  subjects      ScheduledGroupTestSubject[]
+  testInstances UserTestInstanceSummary[]
+}
+
 // --- ENUMS ---
+enum ScheduledTestStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
 
 enum ChallengeStatus {
-  PENDING_ACCEPTANCE // User has been invited but not accepted
-  ACCEPTED           // User has joined the challenge
-  COMPLETED          // User has finished the challenge
+  PENDING_ACCEPTANCE
+  ACCEPTED
+  COMPLETED
   EXPIRED
 }
 
@@ -717,9 +650,9 @@ enum StudyRoomRole {
 }
 
 enum StudyRoomPrivacy {
-  PUBLIC // Anyone can see and join
-  PRIVATE // Not listed; requires direct invitation
-  INVITE_ONLY // Listed publicly, but requires invitation to join
+  PUBLIC
+  PRIVATE
+  INVITE_ONLY
 }
 
 enum InvitationStatus {
@@ -753,6 +686,7 @@ enum TestType {
   drill
   diagnostic
   group
+  challenge
   custom
   weakness
   pyq
