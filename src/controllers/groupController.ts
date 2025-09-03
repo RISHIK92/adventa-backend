@@ -476,6 +476,7 @@ const startGroupTest = async (req: Request, res: Response) => {
         .status(400)
         .json({ success: false, error: "Scheduled Test ID is required." });
     }
+    console.log(scheduledTestId);
 
     // 1. Find the specific test instance for this user and this event
     const testInstance = await prisma.userTestInstanceSummary.findFirst({
@@ -486,20 +487,14 @@ const startGroupTest = async (req: Request, res: Response) => {
       select: { id: true, completedAt: true },
     });
 
+    console.log(testInstance);
+
     // 2. Handle case where no instance exists (e.g., user joined group after test was scheduled)
     if (!testInstance) {
       return res.status(404).json({
         success: false,
         error:
           "Your test instance for this event could not be found. Please contact the group admin.",
-      });
-    }
-
-    // 3. Handle case where the user has already finished this test
-    if (testInstance.completedAt) {
-      return res.status(403).json({
-        success: false,
-        error: "You have already completed this test.",
       });
     }
 
@@ -593,7 +588,6 @@ const getGroupTestInstanceDetails = async (req: Request, res: Response) => {
     const officialEndTime = new Date(
       scheduledStartTime.getTime() + scheduledTest.durationInMinutes * 60 * 1000
     );
-
     if (currentTime >= officialEndTime) {
       return res.status(403).json({
         success: false,
@@ -1002,23 +996,65 @@ const submitScheduledTest = async (req: Request, res: Response) => {
  * Gathers and processes all data for the comprehensive group test results page,
  * including personal insights, group comparisons, a leaderboard, and detailed question review.
  */
+/**
+ * ROUTE: GET /api/group-test-results/:testInstanceId
+ * Gathers and processes all data for the comprehensive group test results page.
+ * It now uses the testInstanceId to find the relevant scheduledTestId.
+ */
 const getGroupMockTestResults = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
-    const { scheduledTestId } = req.params;
+    const { testInstanceId } = req.params;
 
-    if (!scheduledTestId) {
+    if (!testInstanceId) {
       return res
         .status(400)
-        .json({ success: false, error: "Scheduled Test ID is required." });
+        .json({ success: false, error: "Test Instance ID is required." });
     }
 
-    // 1. Authorization & Core Data Fetch
+    // 1. Authorization & Fetching the Scheduled Test ID from the Instance ID
+    const currentUserInstance = await prisma.userTestInstanceSummary.findFirst({
+      where: {
+        id: testInstanceId,
+        userId: uid, // Ensures the user requesting is the one who took the test
+        completedAt: { not: null },
+      },
+      select: {
+        scheduledGroupTestId: true,
+        // Also select fields needed later to avoid a second query for this user
+        userId: true,
+        score: true,
+        numCorrect: true,
+        numIncorrect: true,
+        timeTakenSec: true,
+        user: { select: { id: true, fullName: true } },
+        answers: {
+          include: {
+            question: {
+              include: {
+                subtopic: {
+                  include: { topic: { include: { subject: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!currentUserInstance || !currentUserInstance.scheduledGroupTestId) {
+      return res.status(404).json({
+        success: false,
+        error:
+          "Your test result was not found or is incomplete. Please complete the test first.",
+      });
+    }
+
+    const scheduledTestId = currentUserInstance.scheduledGroupTestId;
+
+    // 2. Fetch Core Test Data
     const scheduledTest = await prisma.scheduledGroupTest.findUnique({
       where: { id: scheduledTestId },
-      include: {
-        studyRoom: { select: { members: { where: { userId: uid } } } },
-      },
     });
 
     if (!scheduledTest) {
@@ -1026,14 +1062,8 @@ const getGroupMockTestResults = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, error: "Scheduled test not found." });
     }
-    if (scheduledTest.studyRoom.members.length === 0) {
-      return res.status(403).json({
-        success: false,
-        error: "You are not a member of the group for this test.",
-      });
-    }
 
-    // 2. Fetch ALL completed test instances
+    // 3. Fetch ALL completed test instances for the group
     const allTestInstances = await prisma.userTestInstanceSummary.findMany({
       where: {
         scheduledGroupTestId: scheduledTestId,
@@ -1063,28 +1093,14 @@ const getGroupMockTestResults = async (req: Request, res: Response) => {
       });
     }
 
-    const currentUserInstance = allTestInstances.find(
-      (inst) => inst.userId === uid
-    );
-    if (!currentUserInstance) {
-      return res.status(403).json({
-        success: false,
-        error:
-          "Your test result was not found. Please complete the test first.",
-      });
-    }
-
-    // 3. Calculate Leaderboard & High-Level Stats
+    // 4. Calculate Leaderboard & High-Level Stats
     const totalParticipants = allTestInstances.length;
     const groupAverageScore =
       allTestInstances.reduce((sum, inst) => sum + inst.score, 0) /
       totalParticipants;
     const highestScoringInstance = allTestInstances[0];
-
-    // --- CHANGE: Calculate lowestScore ---
     const lowestScore = Math.min(...allTestInstances.map((inst) => inst.score));
 
-    // --- CHANGE: Calculate performanceBadges ---
     const fastestSolver = [...allTestInstances].sort(
       (a, b) => a.timeTakenSec - b.timeTakenSec
     )[0];
@@ -1120,7 +1136,7 @@ const getGroupMockTestResults = async (req: Request, res: Response) => {
           : 0;
       return {
         id: inst.userId,
-        name: inst.user.fullName || "Anonymous User", // Add fallback for name
+        name: inst.user.fullName || "Anonymous User",
         score: inst.score,
         accuracy: Math.round(accuracy),
         timeTaken: inst.timeTakenSec,
@@ -1140,22 +1156,22 @@ const getGroupMockTestResults = async (req: Request, res: Response) => {
       id: scheduledTest.id,
       name: scheduledTest.name,
       date: scheduledTest.scheduledStartTime.toISOString(),
-      duration: scheduledTest.durationInMinutes * 60, // Frontend expects seconds
+      duration: scheduledTest.durationInMinutes * 60,
       totalQuestions: scheduledTest.totalQuestions,
       myScore: currentUserInstance.score,
-      groupAverage: Math.round(groupAverageScore), // Round for cleanliness
+      groupAverage: Math.round(groupAverageScore),
       highestScore: highestScoringInstance.score,
-      accuracy: Math.round(currentUserAccuracy), // Round for cleanliness
+      accuracy: Math.round(currentUserAccuracy),
       timeTaken: currentUserInstance.timeTakenSec,
       rank: leaderboard.find((u) => u.id === uid)?.rank || 0,
       totalParticipants: totalParticipants,
     };
 
-    // 4. Perform Deep Hierarchical Analysis
+    // 5. Perform Deep Hierarchical Analysis
     const { memberPerformances, groupPerformance } =
       _calculateHierarchicalAnalysis(allTestInstances);
 
-    // 5. Process Detailed Question Review
+    // 6. Process Detailed Question Review
     const allAnswersFlat = allTestInstances.flatMap((inst) => inst.answers);
     const questionReview = _formatQuestionReview(
       scheduledTest.generatedQuestionIds as number[],
@@ -1168,12 +1184,11 @@ const getGroupMockTestResults = async (req: Request, res: Response) => {
       data: {
         testResult,
         leaderboard,
-        hierarchicalData: memberPerformances[uid] || { subjects: {} }, // Add fallback
+        hierarchicalData: memberPerformances[uid] || { subjects: {} },
         memberHierarchicalData: memberPerformances,
         groupAverageData: groupPerformance,
         questionReview,
-        aiInsights: [], // Kept empty as requested
-        // --- CHANGE: Add new top-level fields ---
+        aiInsights: [],
         lowestScore,
         performanceBadges,
       },
@@ -1185,7 +1200,6 @@ const getGroupMockTestResults = async (req: Request, res: Response) => {
       .json({ success: false, error: "An internal server error occurred." });
   }
 };
-
 // Replace your entire _calculateHierarchicalAnalysis function with this one.
 
 function _calculateHierarchicalAnalysis(allTestInstances: any[]) {

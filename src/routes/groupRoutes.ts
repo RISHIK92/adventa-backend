@@ -2,9 +2,12 @@ import {
   acceptChallenge,
   createChallenge,
   getChallengeOptions,
+  getChallengeResults,
   getChallenges,
   getChallengeTestDetails,
   startChallenge,
+  submitChallenge,
+  submitPrediction,
 } from "../controllers/challengeGroupController.js";
 import {
   createScheduledGroupTest,
@@ -16,6 +19,15 @@ import {
   startGroupTest,
   submitScheduledTest,
 } from "../controllers/groupController.js";
+import {
+  getThreadDetails,
+  addReply,
+  pinReply,
+  toggleReplyLike,
+  toggleThreadLike,
+  createThread,
+  getThreads,
+} from "../controllers/groupDiscussionContoller.js";
 import {
   getMyGroups,
   createGroup,
@@ -85,7 +97,7 @@ router.post(
 );
 
 router.get(
-  `/group-test-results/:scheduledTestId`,
+  `/group-test-results/:testInstanceId`,
   verifyFirebaseToken,
   getGroupMockTestResults
 );
@@ -117,5 +129,32 @@ router.get(
   verifyFirebaseToken,
   getChallengeTestDetails
 );
+
+router.post(
+  "/challenges/:challengeId/predict",
+  verifyFirebaseToken,
+  submitPrediction
+);
+
+router.post(
+  "/submit-challenge/:challengeId",
+  verifyFirebaseToken,
+  submitChallenge
+);
+
+router.get(
+  "/challenge-results/:testInstanceId",
+  verifyFirebaseToken,
+  getChallengeResults
+);
+
+router.get("/:studyRoomId/discussions", getThreads);
+router.post("/:studyRoomId/discussions", createThread);
+
+router.get("/discussions/:threadId", getThreadDetails);
+router.post("/discussions/:threadId/replies", addReply);
+router.post("/discussions/:threadId/pin", pinReply);
+router.post("/discussions/threads/:threadId/like", toggleThreadLike);
+router.post("/discussions/replies/:replyId/like", toggleReplyLike);
 
 export default router;

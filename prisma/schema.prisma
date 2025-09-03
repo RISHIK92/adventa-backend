@@ -475,7 +475,6 @@ model Challenge {
   timeLimit    Int  
 
   subtopicId   Int?
-  status       ChallengeStatus @default(PENDING_ACCEPTANCE)
   winnerId     String?
   createdAt    DateTime        @default(now())
   completedAt  DateTime?
@@ -506,7 +505,6 @@ model ChallengeParticipant {
   numCorrect     Int?
   numIncorrect   Int?
   numUnattempted Int?
-  hasCompleted   Boolean   @default(false)
 
   challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -551,6 +549,7 @@ model DiscussionThread {
   author    User            @relation(fields: [authorId], references: [id])
   question  Question?       @relation(fields: [questionId], references: [id])
   replies   DiscussionReply[]
+  likes     DiscussionLike[]
 
   @@index([studyRoomId, createdAt])
 }
@@ -571,13 +570,20 @@ model DiscussionReply {
 }
 
 model DiscussionLike {
-  replyId String
-  userId  String
+  // THE FIX: Add a dedicated primary key for the 'like' itself
+  id        String   @id @default(uuid())
 
-  reply DiscussionReply @relation(fields: [replyId], references: [id], onDelete: Cascade)
-  user  User            @relation(fields: [userId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  replyId   String?
+  reply     DiscussionReply? @relation(fields: [replyId], references: [id], onDelete: Cascade)
 
-  @@id([replyId, userId])
+  threadId  String?
+  thread    DiscussionThread? @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, replyId])
+  @@unique([userId, threadId])
 }
 
 model Badge {

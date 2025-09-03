@@ -12,6 +12,7 @@ const createChallengeSchema = z.object({
   difficulty: z.nativeEnum(DifficultyLevel),
   timeLimit: z.number().int().min(5, "Time limit must be at least 5 minutes."),
   questionCount: z.union([
+    z.literal(1),
     z.literal(3),
     z.literal(6),
     z.literal(9),
@@ -19,6 +20,23 @@ const createChallengeSchema = z.object({
     z.literal(15),
   ]),
 });
+
+const submitPredictionSchema = z.object({
+  predictedScore: z
+    .number()
+    .int()
+    .min(0, "Predicted score cannot be negative."),
+  confidence: z
+    .number()
+    .int()
+    .min(0, "Confidence must be at least 0.")
+    .max(100, "Confidence cannot exceed 100."),
+});
+
+interface RedisAnswerValue {
+  answer: string | null;
+  markedForReview: boolean;
+}
 
 /**
  * ROUTE: GET /api/study-group/:studyRoomId/challenge-options
@@ -208,6 +226,8 @@ const createChallenge = async (req: Request, res: Response) => {
       });
 
       const fetchedQuestionBatches = await Promise.all(questionPromises);
+      console.log(fetchedQuestionBatches);
+      console.log(selectedTopics);
 
       // 4. Validate that enough questions were found for every topic
       for (let i = 0; i < selectedTopics.length; i++) {
@@ -286,23 +306,65 @@ const getChallenges = async (req: Request, res: Response) => {
         challenger: { select: { fullName: true } },
         topic: { select: { name: true } },
         _count: { select: { Participants: true } },
+        Participants: {
+          where: { userId: uid },
+          select: {
+            status: true,
+            userTestInstanceId: true, // Fetch the instance ID
+            predictedScore: true, // Fetch prediction
+            predictedConfidence: true, // Fetch prediction
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    const formattedChallenges = challenges.map((c: any) => ({
-      id: c.id,
-      title: c.title,
-      topic: c.topic.name,
-      difficulty: c.difficulty,
-      timeLimit: c.timeLimit,
-      creator: c.challenger.fullName,
-      participants: c._count.participants,
-      status: c.status === "COMPLETED" ? "completed" : "active",
-      deadline: new Date(
-        c.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000
-      ).toISOString(), // Example deadline: 7 days after creation
-    }));
+    const isChallengeActive = (challenge: (typeof challenges)[0]) => {
+      const deadline = new Date(
+        challenge.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000
+      );
+      return new Date() < deadline;
+    };
+
+    const formattedChallenges = challenges.map((c) => {
+      const userParticipation = c.Participants[0];
+      const userStatus = userParticipation?.status
+        ? userParticipation.status === "PENDING_ACCEPTANCE"
+          ? "NOT_ACCEPTED"
+          : userParticipation.status
+        : "NOT_ACCEPTED";
+
+      const totalQuestions = Array.isArray(c.generatedQuestionIds)
+        ? c.generatedQuestionIds.length
+        : 0;
+
+      const userPrediction =
+        userParticipation?.predictedScore !== null &&
+        userParticipation?.predictedConfidence !== null
+          ? {
+              score: userParticipation?.predictedScore,
+              confidence: userParticipation?.predictedConfidence,
+            }
+          : null;
+
+      return {
+        id: c.id,
+        title: c.title,
+        topic: c.topic.name,
+        difficulty: c.difficulty,
+        timeLimit: c.timeLimit,
+        creator: c.challenger.fullName || "Unknown",
+        participantCount: c._count.Participants,
+        totalQuestions: totalQuestions,
+        status: isChallengeActive(c) ? "ACTIVE" : "ENDED",
+        deadline: new Date(
+          c.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000
+        ).toISOString(),
+        userStatus,
+        userTestInstanceId: userParticipation?.userTestInstanceId || null,
+        userPrediction, // NEW: Add prediction to response
+      };
+    });
 
     res.json({ success: true, data: formattedChallenges });
   } catch (error) {
@@ -479,7 +541,7 @@ const getChallengeTestDetails = async (req: Request, res: Response) => {
 
     if (!testInstanceId) {
       return res
-        .status(404)
+        .status(401)
         .json({ success: false, error: "Challenge not found." });
     }
 
@@ -580,6 +642,7 @@ const getChallengeTestDetails = async (req: Request, res: Response) => {
         testInstanceId,
         name: testInstance.testName,
         timeLimit,
+        challengeId: challenge.id,
         questions: formattedQuestions,
       },
     });
@@ -591,149 +654,427 @@ const getChallengeTestDetails = async (req: Request, res: Response) => {
   }
 };
 
-interface ChallengeAnswerPayload {
-  questionId: number;
-  userAnswer: string | null; // Can be null if skipped
-  timeTakenSec: number;
-}
-
-export const submitChallenge = async (req: Request, res: Response) => {
+/**
+ * ROUTE: POST /api/challenges/:challengeId/predict
+ * Allows a user to submit a score prediction for a challenge they have accepted.
+ */
+const submitPrediction = async (req: Request, res: Response) => {
   try {
-    const { uid } = req.user; // Assuming auth middleware provides this
+    const { uid } = req.user;
     const { challengeId } = req.params;
-    const answers: ChallengeAnswerPayload[] = req.body.answers;
 
     if (!challengeId) {
       return res
-        .status(404)
+        .status(401)
         .json({ success: false, error: "Challenge not found." });
     }
 
-    // --- 1. Initial Validation ---
-    if (!answers || !Array.isArray(answers) || answers.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid or empty submission." });
+    const validation = submitPredictionSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        errors: validation.error.flatten().fieldErrors,
+      });
+    }
+    const { predictedScore, confidence } = validation.data;
+
+    // 1. Find the user's participation record
+    const participant = await prisma.challengeParticipant.findUnique({
+      where: { challengeId_userId: { challengeId, userId: uid } },
+      include: { challenge: { select: { studyRoomId: true } } },
+    });
+
+    // 2. Authorization & Validation
+    if (!participant) {
+      return res.status(403).json({
+        success: false,
+        error: "You have not accepted this challenge yet.",
+      });
+    }
+    if (participant.status !== "ACCEPTED") {
+      return res.status(400).json({
+        success: false,
+        error: `You cannot make a prediction on a challenge with '${participant.status}' status.`,
+      });
+    }
+    if (participant.userTestInstanceId) {
+      return res.status(400).json({
+        success: false,
+        error: "You cannot make a prediction after starting the challenge.",
+      });
     }
 
-    // --- 2. Fetch Challenge & Validate User Status ---
-    const challenge = await prisma.challenge.findUnique({
-      where: { id: challengeId },
-      include: {
-        // We only need question IDs and correct answers for scoring
-        questions: { select: { id: true, correctOption: true } },
-        participants: {
-          where: { userId: uid },
-          select: { hasCompleted: true },
-        },
+    // 3. Update the record with the prediction
+    await prisma.challengeParticipant.update({
+      where: { challengeId_userId: { challengeId, userId: uid } },
+      data: {
+        predictedScore,
+        predictedConfidence: confidence,
       },
     });
 
-    if (!challenge) {
+    res.json({ success: true, message: "Prediction submitted successfully." });
+  } catch (error) {
+    console.error("Error submitting prediction:", error);
+    res
+      .status(500)
+      .json({ success: false, error: "An internal server error occurred." });
+  }
+};
+
+const submitChallenge = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { challengeId } = req.params; // CHANGED: We now get challengeId from the route
+
+    if (!challengeId) {
       return res
-        .status(404)
-        .json({ success: false, error: "Challenge not found." });
+        .status(400)
+        .json({ success: false, error: "Challenge ID is required." });
     }
-    if (challenge.participants.length === 0) {
+
+    // --- 1. NEW: Find the Participant Record to get the Test Instance ID ---
+    const participant = await prisma.challengeParticipant.findUnique({
+      where: { challengeId_userId: { challengeId, userId: uid } },
+      include: { challenge: true }, // Include challenge data for question IDs
+    });
+
+    // --- 2. NEW: Validation based on the participant record ---
+    if (!participant) {
       return res.status(403).json({
         success: false,
         error: "You are not a participant in this challenge.",
       });
     }
-    if (challenge.participants[0].hasCompleted) {
+    if (participant.status === "COMPLETED") {
       return res.status(400).json({
         success: false,
         error: "You have already completed this challenge.",
       });
     }
-
-    // --- 3. Score Calculation ---
-    const correctAnswersMap = new Map(
-      challenge.questions.map((q) => [q.id, q.correctOption])
-    );
-
-    let score = 0;
-    let totalTimeTaken = 0;
-    let numCorrect = 0;
-    let numIncorrect = 0;
-    const submittedQuestionIds = new Set(answers.map((a) => a.questionId));
-
-    for (const answer of answers) {
-      totalTimeTaken += answer.timeTakenSec;
-      const correctOption = correctAnswersMap.get(answer.questionId);
-
-      if (correctOption && answer.userAnswer === correctOption) {
-        score += 4; // Standard scoring: +4 for correct
-        numCorrect++;
-      } else if (answer.userAnswer !== null) {
-        score -= 1; // -1 for incorrect
-        numIncorrect++;
-      }
+    if (!participant.userTestInstanceId) {
+      return res.status(400).json({
+        success: false,
+        error: "You have not started this challenge yet.",
+      });
     }
 
-    const numUnattempted = correctAnswersMap.size - submittedQuestionIds.size;
+    // --- 3. Extract variables and proceed with the original logic ---
+    const testInstanceId = participant.userTestInstanceId;
+    const challenge = participant.challenge;
+    const questionIds = challenge.generatedQuestionIds as number[];
 
-    // --- 4. Update Leaderboard in Redis ---
-    // Redis Sorted Sets are perfect for real-time leaderboards.
-    // The key is unique to this challenge.
-    const leaderboardKey = `challenge:leaderboard:${challengeId}`;
-    await redisClient.zAdd(leaderboardKey, score, uid);
-
-    // --- 5. Atomically Save Results to Database ---
-    // Using a transaction ensures that we either save everything or nothing,
-    // maintaining data integrity.
-    await prisma.$transaction([
-      // Create a record for each individual answer for detailed review later
-      prisma.challengeAnswer.createMany({
-        data: answers.map((ans) => ({
-          challengeId: challengeId,
-          userId: uid,
-          questionId: ans.questionId,
-          userAnswer: ans.userAnswer,
-          timeTakenSec: ans.timeTakenSec,
-          isCorrect: correctAnswersMap.get(ans.questionId) === ans.userAnswer,
-        })),
+    // --- 4. Fetch All Progress from Redis ---
+    const redisKey = `progress:${testInstanceId}`;
+    const [savedProgress, questions] = await Promise.all([
+      redisClient.hGetAll(redisKey),
+      prisma.question.findMany({
+        where: { id: { in: questionIds } },
+        select: { id: true, correctOption: true },
       }),
-      // Update the user's participation record with their final score and status
-      prisma.challengeParticipant.update({
-        where: {
-          challengeId_userId: {
-            // Assumes a composite key on the model
-            challengeId: challengeId,
-            userId: uid,
-          },
-        },
+    ]);
+    const correctAnswersMap = new Map(
+      questions.map((q) => [q.id, q.correctOption])
+    );
+
+    // --- 5. Calculate Score and Stats (+1/0 logic) ---
+    let numCorrect = 0;
+    const answersToSave: any[] = [];
+    const totalTimeTakenSec = parseInt(savedProgress._totalTime || "0", 10);
+    delete savedProgress._totalTime;
+
+    for (const questionIdStr in savedProgress) {
+      const questionId = parseInt(questionIdStr, 10);
+      if (!savedProgress[questionIdStr]) {
+        return;
+      }
+      const progress = JSON.parse(savedProgress[questionIdStr]);
+      if (progress.answer === null) continue; // Skip unattempted
+
+      console.log(progress, progress.answer, "vfnj");
+
+      const correctAnswer = correctAnswersMap.get(questionId);
+      console.log(correctAnswer, "cr");
+
+      const isCorrect =
+        correctAnswer !== undefined &&
+        String(progress.answer).trim().toUpperCase() ===
+          String(correctAnswer).trim().toUpperCase();
+
+      if (isCorrect) {
+        numCorrect++;
+      }
+
+      answersToSave.push({
+        testInstanceId,
+        userId: uid,
+        questionId,
+        userAnswer: progress.answer,
+        isCorrect,
+        status: isCorrect ? "Correct" : "Incorrect",
+        timeTakenSec: Math.round(progress.time || 0),
+      });
+    }
+
+    const numAttempted = answersToSave.length;
+    const numIncorrect = numAttempted - numCorrect;
+    const numUnattempted = questionIds.length - numAttempted;
+    const finalScore = numCorrect;
+    const totalMarks = questionIds.length;
+
+    // --- 6. Atomically Save Results to Database in a Transaction ---
+    await prisma.$transaction(async (tx) => {
+      // a) Create the detailed answer records
+      if (answersToSave.length > 0) {
+        await tx.userTestAnswer.createMany({ data: answersToSave });
+      }
+
+      // b) Update the main test instance summary
+      await tx.userTestInstanceSummary.update({
+        where: { id: testInstanceId },
         data: {
-          score,
-          timeTakenSec: totalTimeTaken,
+          completedAt: new Date(),
+          score: finalScore,
+          totalMarks: totalMarks,
           numCorrect,
           numIncorrect,
           numUnattempted,
-          hasCompleted: true,
-          completedAt: new Date(),
+          timeTakenSec: totalTimeTakenSec,
         },
-      }),
-    ]);
+      });
 
-    // --- 6. Get User's Rank from Redis ---
-    // ZREVRANK gives the rank from highest score to lowest (0-indexed).
-    const rank = await redisClient.zRevRank(leaderboardKey, uid);
+      // c) Update the participant's record
+      await tx.challengeParticipant.update({
+        where: { challengeId_userId: { challengeId, userId: uid } }, // Can use the main key here
+        data: { status: "COMPLETED", completedAt: new Date() },
+      });
+    });
 
-    // --- 7. Send Final Response ---
-    res.status(200).json({
+    // --- 7. Clean Up and Respond ---
+    await redisClient.del(redisKey);
+    res.json({
       success: true,
       message: "Challenge submitted successfully!",
-      data: {
-        score,
-        totalTimeTaken,
-        numCorrect,
-        numIncorrect,
-        numUnattempted,
-        rank: rank !== null ? rank + 1 : null, // Convert 0-indexed to 1-indexed
-      },
+      data: { score: finalScore, totalMarks },
     });
   } catch (error) {
     console.error("Error submitting challenge:", error);
+    res
+      .status(500)
+      .json({ success: false, error: "An internal server error occurred." });
+  }
+};
+
+const getChallengeResults = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { testInstanceId } = req.params;
+
+    if (!testInstanceId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Test Instance ID is required." });
+    }
+
+    // 1. Fetch current user's instance to find the challengeId and authorize
+    const currentUserInstance = await prisma.userTestInstanceSummary.findFirst({
+      where: { id: testInstanceId, userId: uid },
+      include: {
+        challengeParticipant: { include: { challenge: true } },
+      },
+    });
+
+    if (
+      !currentUserInstance ||
+      !currentUserInstance.challengeParticipant?.challengeId
+    ) {
+      return res.status(404).json({
+        success: false,
+        error: "Challenge result not found for this user.",
+      });
+    }
+
+    const { challenge } = currentUserInstance.challengeParticipant;
+    const { studyRoomId } = challenge;
+
+    // Authorization... (no changes needed)
+
+    // 2. Fetch ALL completed instances for this challenge
+    const allInstances = await prisma.userTestInstanceSummary.findMany({
+      where: {
+        challengeParticipant: { challengeId: challenge.id },
+        completedAt: { not: null },
+      },
+      include: {
+        user: { select: { id: true, fullName: true } },
+        challengeParticipant: {
+          // FIX 1: Fetch the correct prediction field from the database
+          select: { predictedScore: true, predictedConfidence: true },
+        },
+        answers: true, // Fetch answers, we'll get question details separately
+      },
+    });
+
+    if (allInstances.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "No completed results are available for this challenge yet.",
+      });
+    }
+
+    // FIX 2: Create a master list of all questions in the challenge.
+    // This ensures that even if nobody answers a question, it still appears in the review.
+    const masterQuestions = await prisma.question.findMany({
+      where: { id: { in: challenge.generatedQuestionIds as number[] } },
+      select: {
+        id: true,
+        question: true,
+        options: true,
+        correctOption: true,
+        solution: true,
+        subtopic: {
+          select: {
+            name: true,
+            topic: {
+              select: { name: true, subject: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    });
+    const masterQuestionsMap = new Map(masterQuestions.map((q) => [q.id, q]));
+
+    // --- 3. Process Data for the Frontend ---
+
+    // A. Leaderboard & Badges
+    const sortedByScore = [...allInstances].sort(
+      (a, b) => b.score - a.score || a.timeTakenSec - b.timeTakenSec
+    );
+    const fastest = [...allInstances].sort(
+      (a, b) => a.timeTakenSec - b.timeTakenSec
+    )[0];
+    const badges: Record<string, string[]> = {};
+    allInstances.forEach((inst) => (badges[inst.userId] = []));
+    if (sortedByScore[0]) badges[sortedByScore[0].userId]?.push("Top Scorer");
+    if (fastest) badges[fastest.userId]?.push("Fastest Solver");
+
+    const leaderboard = sortedByScore.map((inst, index) => {
+      const accuracy =
+        inst.numCorrect + inst.numIncorrect > 0
+          ? (inst.numCorrect / (inst.numCorrect + inst.numIncorrect)) * 100
+          : 0;
+      const name = inst.user.fullName || "Anonymous User";
+      const avatar = name.match(/\b\w/g)?.join("").toUpperCase() || "AU";
+      return {
+        id: inst.userId,
+        rank: index + 1,
+        name: name,
+        avatar: avatar,
+        // FIX 3: Score should be a percentage for the UI
+        score:
+          inst.totalQuestions > 0
+            ? Math.round((inst.numCorrect / inst.totalQuestions) * 100)
+            : 0,
+        timeCompleted: Math.round(inst.timeTakenSec / 60),
+        accuracy: Math.round(accuracy),
+        badges: badges[inst.userId] || [],
+      };
+    });
+
+    // B. Prediction Analysis
+    const totalQuestions = challenge.generatedQuestionIds.length;
+    const predictionAnalysis = allInstances.map((inst) => {
+      // FIX 4: Use the correct field `predictedCorrectCount`
+      const prediction = inst.challengeParticipant?.predictedScore;
+      const actual = inst.numCorrect;
+      const accuracy =
+        prediction !== null && prediction !== undefined && totalQuestions > 0
+          ? Math.max(
+              0,
+              (1 - Math.abs(prediction - actual) / totalQuestions) * 100
+            )
+          : 0;
+      const name = inst.user.fullName || "Anonymous User";
+      const avatar = name.match(/\b\w/g)?.join("").toUpperCase() || "AU";
+      return {
+        id: inst.userId,
+        name: name,
+        avatar: avatar,
+        predicted: prediction,
+        actual: actual,
+        predictionAccuracy: Math.round(accuracy),
+      };
+    });
+
+    // C. Question Review
+    const allAnswersFlat = allInstances.flatMap((inst) => inst.answers);
+    const answersByQuestion = new Map<number, any[]>();
+    allAnswersFlat.forEach((ans) => {
+      if (!answersByQuestion.has(ans.questionId)) {
+        answersByQuestion.set(ans.questionId, []);
+      }
+      answersByQuestion.get(ans.questionId)!.push(ans);
+    });
+
+    // FIX 5: Iterate over the MASTER list of questions, not just the answered ones.
+    const questionReview = (challenge.generatedQuestionIds as number[])
+      .map((qId) => {
+        const questionData = masterQuestionsMap.get(qId);
+        if (!questionData) return null; // Should not happen, but a good safeguard
+
+        const answersForThisQ = answersByQuestion.get(qId) || [];
+        const currentUserAnswer = answersForThisQ.find((a) => a.userId === uid);
+
+        const memberAnswers: Record<string, string | null> = {};
+        const optionDistribution: Record<string, number> = {};
+
+        // Iterate over ALL participants to ensure everyone is included for every question.
+        allInstances.forEach((instance) => {
+          const participantAnswer = answersForThisQ.find(
+            (ans) => ans.userId === instance.userId
+          );
+          const userAnswer = participantAnswer
+            ? participantAnswer.userAnswer
+            : null;
+          memberAnswers[instance.userId] = userAnswer;
+
+          if (userAnswer) {
+            optionDistribution[userAnswer] =
+              (optionDistribution[userAnswer] || 0) + 1;
+          }
+        });
+
+        return {
+          id: qId,
+          questionText: questionData.question,
+          subject: questionData.subtopic.topic.subject.name,
+          topic: questionData.subtopic.topic.name,
+          options: questionData.options,
+          correctAnswer: questionData.correctOption,
+          explanation: questionData.solution,
+          myAnswer: currentUserAnswer?.userAnswer || null,
+          isCorrect: currentUserAnswer?.isCorrect || false,
+          memberAnswers,
+          optionDistribution,
+        };
+      })
+      .filter(Boolean);
+
+    res.json({
+      success: true,
+      data: {
+        challengeDetails: {
+          id: challenge.id,
+          title: challenge.title,
+          totalQuestions,
+        },
+        leaderboard,
+        predictionAnalysis,
+        questionReview,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching challenge results:", error);
     res
       .status(500)
       .json({ success: false, error: "An internal server error occurred." });
@@ -747,4 +1088,7 @@ export {
   acceptChallenge,
   startChallenge,
   getChallengeTestDetails,
+  submitPrediction,
+  submitChallenge,
+  getChallengeResults,
 };
