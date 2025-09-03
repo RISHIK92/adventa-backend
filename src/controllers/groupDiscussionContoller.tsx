@@ -4,15 +4,37 @@ import z from "zod";
 
 // --- Zod Schemas for Validation ---
 const createThreadSchema = z.object({
-  title: z.string().min(5, "Title must be at least 5 characters long."),
-  content: z.string().min(10, "Content must be at least 10 characters long."),
-  questionId: z.number().int().positive().optional(),
+  title: z.string().min(3, "Title must be at least 3 characters long."),
+  content: z.string().min(3, "Content must be at least 3 characters long."),
 });
 
 const createReplySchema = z.object({
   content: z.string().min(1, "Reply content cannot be empty."),
-  parentId: z.string().uuid().optional(), // For nested replies
+  // parentId: z.string().uuid().optional(), // For nested replies
 });
+
+const formatAuthor = (
+  author: any,
+  counts?: { likes: number; replies: number }
+) => {
+  if (!author) {
+    return {
+      id: "unknown",
+      name: "Anonymous",
+      reputation: 0,
+      badges: [],
+    };
+  }
+  // A simple reputation score for demonstration
+  const reputation = (counts?.likes || 0) * 5 + (counts?.replies || 0) * 2;
+
+  return {
+    id: author.id,
+    name: author.fullName || "Anonymous",
+    reputation: reputation,
+    badges: author.badges?.map((b: any) => b.badge.name) || [],
+  };
+};
 
 /**
  * ROUTE: GET /api/study-group/:studyRoomId/discussions
@@ -64,20 +86,16 @@ const getThreads = async (req: Request, res: Response) => {
       id: thread.id,
       title: thread.title,
       content: thread.content,
-      author: {
-        id: thread.author.id,
-        name: thread.author.fullName || "Anonymous",
-        // You would calculate reputation based on likes, replies, etc.
-        reputation: thread._count.likes * 5 + thread._count.replies * 2,
-        badges: thread.author.badges.map((b) => b.badge.name),
-      },
+      author: formatAuthor(thread.author, {
+        likes: thread._count.likes,
+        replies: thread._count.replies,
+      }),
       timestamp: thread.createdAt,
       upvotes: thread._count.likes,
       isUpvoted: thread.likes.length > 0,
-      status: thread.pinnedReplyId ? "resolved" : "open", // Simplified status
+      status: thread.pinnedReplyId ? "resolved" : "open",
       repliesCount: thread._count.replies,
-      questionId: thread.questionId,
-      // You would need to add a tags model or parse from content if needed
+      questionId: thread.questionId || undefined,
       tags: [],
     }));
 
@@ -118,7 +136,9 @@ const createThread = async (req: Request, res: Response) => {
         errors: validation.error.flatten().fieldErrors,
       });
     }
-    const { title, content, questionId } = validation.data;
+    const { title, content } = validation.data;
+
+    console.log(validation.data);
 
     if (!title) {
       return res
@@ -129,11 +149,6 @@ const createThread = async (req: Request, res: Response) => {
       return res
         .status(404)
         .json({ success: false, error: "content is required." });
-    }
-    if (!questionId) {
-      return res
-        .status(404)
-        .json({ success: false, error: "questionId is required." });
     }
 
     const membership = await prisma.studyRoomMember.findUnique({
@@ -151,7 +166,6 @@ const createThread = async (req: Request, res: Response) => {
         content,
         studyRoomId,
         authorId: uid,
-        questionId,
       },
     });
 
@@ -232,9 +246,10 @@ const getThreadDetails = async (req: Request, res: Response) => {
       id: thread.id,
       title: thread.title,
       content: thread.content,
-      author: {
-        /* format author as before */
-      },
+      author: formatAuthor(thread.author, {
+        likes: thread._count.likes,
+        replies: thread._count.replies,
+      }),
       timestamp: thread.createdAt,
       upvotes: thread._count.likes,
       isUpvoted: thread.likes.length > 0,
@@ -242,9 +257,10 @@ const getThreadDetails = async (req: Request, res: Response) => {
       replies: thread.replies.map((reply) => ({
         id: reply.id,
         content: reply.content,
-        author: {
-          /* format author as before */
-        },
+        author: formatAuthor(thread.author, {
+          likes: thread._count.likes,
+          replies: thread._count.replies,
+        }),
         timestamp: reply.createdAt,
         upvotes: reply._count.likes,
         isUpvoted: reply.likes.length > 0,
@@ -289,15 +305,9 @@ const addReply = async (req: Request, res: Response) => {
         errors: validation.error.flatten().fieldErrors,
       });
     }
-    const { content, parentId } = validation.data;
-
-    if (!parentId) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Parent Id is required." });
-    }
-
+    const { content } = validation.data;
     // Authorization: Find the thread to get its study room ID
+
     const thread = await prisma.discussionThread.findUnique({
       where: { id: threadId },
       select: { studyRoomId: true },
@@ -323,7 +333,6 @@ const addReply = async (req: Request, res: Response) => {
         content,
         threadId,
         authorId: uid,
-        parentId,
       },
     });
 
@@ -463,6 +472,69 @@ const pinReply = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * ROUTE: POST /api/discussions/:threadId/resolve
+ * Toggles the resolved status of a thread. Only the author can do this.
+ */
+const resolveThread = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { threadId } = req.params;
+
+    if (!threadId) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Thread Id is required." });
+    }
+
+    const thread = await prisma.discussionThread.findUnique({
+      where: { id: threadId },
+    });
+
+    if (!thread) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Thread not found." });
+    }
+
+    // Authorization: Only the thread author can mark it as resolved.
+    if (thread.authorId !== uid) {
+      return res.status(403).json({
+        success: false,
+        error: "Only the thread author can resolve this post.",
+      });
+    }
+
+    // This logic assumes pinning the first reply resolves the thread.
+    // A more direct approach might be a dedicated 'status' field in the schema.
+    // For now, we'll simulate by toggling the pin of the *first* reply if one exists.
+    // If a "Best Answer" is already pinned, this action will un-resolve it.
+
+    let newPinnedId: string | null = null;
+    if (!thread.pinnedReplyId) {
+      const firstReply = await prisma.discussionReply.findFirst({
+        where: { threadId },
+        orderBy: { createdAt: "asc" },
+      });
+      if (firstReply) {
+        newPinnedId = firstReply.id;
+      }
+    }
+
+    await prisma.discussionThread.update({
+      where: { id: threadId },
+      data: { pinnedReplyId: newPinnedId },
+    });
+
+    res.json({ success: true, message: "Thread status updated." });
+  } catch (error) {
+    console.error("Error resolving thread:", error);
+    res
+      .status(500)
+      .json({ success: false, error: "An internal server error occurred." });
+  }
+};
+
 export {
   getThreads,
   createThread,
@@ -471,4 +543,5 @@ export {
   toggleThreadLike,
   toggleReplyLike,
   pinReply,
+  resolveThread,
 };

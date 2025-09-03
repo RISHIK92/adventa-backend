@@ -27,6 +27,7 @@ import {
   toggleThreadLike,
   createThread,
   getThreads,
+  resolveThread,
 } from "../controllers/groupDiscussionContoller.js";
 import {
   getMyGroups,
@@ -148,13 +149,27 @@ router.get(
   getChallengeResults
 );
 
-router.get("/:studyRoomId/discussions", getThreads);
-router.post("/:studyRoomId/discussions", createThread);
+router.get("/:studyRoomId/discussions", verifyFirebaseToken, getThreads);
+router.post("/:studyRoomId/discussions", verifyFirebaseToken, createThread);
 
-router.get("/discussions/:threadId", getThreadDetails);
-router.post("/discussions/:threadId/replies", addReply);
-router.post("/discussions/:threadId/pin", pinReply);
-router.post("/discussions/threads/:threadId/like", toggleThreadLike);
-router.post("/discussions/replies/:replyId/like", toggleReplyLike);
+router.get("/discussions/:threadId", verifyFirebaseToken, getThreadDetails);
+router.post("/discussions/:threadId/replies", verifyFirebaseToken, addReply);
+router.post("/discussions/:threadId/pin", verifyFirebaseToken, pinReply);
+router.post(
+  "/discussions/threads/:threadId/like",
+  verifyFirebaseToken,
+  toggleThreadLike
+);
+router.post(
+  "/discussions/replies/:replyId/like",
+  verifyFirebaseToken,
+  toggleReplyLike
+);
+
+router.post(
+  "/discussions/:threadId/resolve",
+  verifyFirebaseToken,
+  resolveThread
+);
 
 export default router;
