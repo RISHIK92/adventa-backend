@@ -303,9 +303,9 @@ export const createSmartMockTest = async (req: Request, res: Response) => {
     }
 
     const topicsSortedByWeightage = [...topicsWithWeightage].sort((a, b) => {
-      if (!a.examWeightage) return 1;
+      if (!a.examWeightage) return 1
       if (!b.examWeightage) return -1;
-      b.examWeightage.comparedTo(a.examWeightage);
+      return b.examWeightage.comparedTo(a.examWeightage);
     });
     const difficultyMap = new Map(
       difficultyPerformances.map((p) => [
