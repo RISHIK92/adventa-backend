@@ -46,6 +46,7 @@ model User {
   StudyRoom                  StudyRoom[]                 @relation("StudyRoomCreator")
   memberStats                UserGroupStats[]
   challengeAnswers ChallengeAnswer[]
+  dailyRecommendations DailyRecommendation[]
 }
 
 model Exam {
@@ -64,6 +65,7 @@ model Exam {
   users         User[]
   examSummaries UserExamOverallSummary[]
   StudyRoom     StudyRoom[]
+  dailyRecommendations DailyRecommendation[]
 }
 
 model ExamSession {
@@ -111,6 +113,9 @@ model Topic {
   name                   String
   averageAccuracyPercent Decimal?                 @default(0.00) @db.Decimal(5, 2)
 
+  examWeightage          Decimal?                 @default(0.0) @db.Decimal(5, 2) // e.g., 8.50 for 8.5%
+  studyMaterialLink      String?
+
   userPerformance   UserTopicPerformance[]
   subject           Subject                  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   subtopics         Subtopic[]
@@ -157,6 +162,8 @@ model Question {
   ReportReason             String?
   predictedDifficultyScore Float?
   platformAvgTimeSec       Int?
+
+  embedding                Unsupported("vector(1024)")? 
 
   examSession       ExamSession?           @relation(fields: [examSessionId], references: [id])
   subtopic          Subtopic               @relation(fields: [subtopicId], references: [id])
@@ -312,6 +319,8 @@ model UserTestInstanceSummary {
 
   scheduledGroupTestId String?
 
+  generatedQuestionIds   Json?
+
   exam             Exam?                       @relation(fields: [examId], references: [id])
   user             User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   answers          UserTestAnswer[]
@@ -344,6 +353,7 @@ model UserTestAnswer {
 
   @@unique([testInstanceId, questionId])
   @@index([testInstanceId])
+  @@index([userId, isCorrect])
 }
 
 model StudyRoom {
@@ -633,6 +643,19 @@ model ScheduledGroupTest {
   createdBy     User                         @relation(fields: [createdById], references: [id])
   subjects      ScheduledGroupTestSubject[]
   testInstances UserTestInstanceSummary[]
+}
+
+model DailyRecommendation {
+  id              String   @id @default(uuid())
+  userId          String
+  examId          Int
+  recommendation  Json // Stores the full JSON output from the AI
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([userId, examId, createdAt(sort: Desc)])
 }
 
 // --- ENUMS ---
