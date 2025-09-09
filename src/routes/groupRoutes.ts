@@ -11,6 +11,7 @@ import {
 } from "../controllers/challengeGroupController.js";
 import {
   createScheduledGroupTest,
+  demoteAdmin,
   generateInviteLink,
   getGroupDetails,
   getGroupMembers,
@@ -19,8 +20,10 @@ import {
   getGroupTestInstanceDetails,
   getScheduledGroupTests,
   promoteToAdmin,
+  removeMember,
   startGroupTest,
   submitScheduledTest,
+  updateGroupPrivacy,
 } from "../controllers/groupController.js";
 import {
   getThreadDetails,
@@ -61,9 +64,23 @@ router.post("/join-by-link/:inviteCode", verifyFirebaseToken, joinGroupByLink);
 
 router.post("/:studyRoomId/promote-admin", verifyFirebaseToken, promoteToAdmin);
 
+router.delete(
+  "/:studyRoomId/members/:memberId",
+  verifyFirebaseToken,
+  removeMember
+);
+
+router.delete(
+  "/:studyRoomId/admins/:memberId",
+  verifyFirebaseToken,
+  demoteAdmin
+);
+
 router.post("/:studyRoomId/invite", verifyFirebaseToken, inviteMember);
 
 router.get("/:studyRoomId/members", verifyFirebaseToken, getGroupMembers);
+
+router.patch("/:studyRoomId/privacy", verifyFirebaseToken, updateGroupPrivacy);
 
 router.get("/my-groups", verifyFirebaseToken, getMyGroups);
 router.post("/create-group", verifyFirebaseToken, createGroup);

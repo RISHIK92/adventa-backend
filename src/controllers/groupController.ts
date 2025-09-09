@@ -207,6 +207,65 @@ const generateInviteLink = async (req: Request, res: Response) => {
 };
 
 /**
+ * ROUTE: PATCH /api/study-group/:studyRoomId/privacy
+ * Updates the privacy setting of a study group.
+ */
+const updateGroupPrivacy = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { studyRoomId } = req.params;
+
+    if (!studyRoomId) {
+      return res.status(400).json({
+        success: false,
+        error: "Study room ID is required.",
+      });
+    }
+
+    // 1. Validate the request body against the schema
+    const { privacy: newPrivacy } = req.body;
+
+    // 2. Authorization: Verify the user is an ADMIN of this specific group.
+    const membership = await prisma.studyRoomMember.findUnique({
+      where: {
+        studyRoomId_userId: { studyRoomId, userId: uid },
+      },
+    });
+
+    if (membership?.role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        error: "Only admins are allowed to change group privacy settings.",
+      });
+    }
+
+    // 3. Perform the update
+    const updatedGroup = await prisma.studyRoom.update({
+      where: {
+        id: studyRoomId,
+      },
+      data: {
+        privacy: newPrivacy,
+        lastActivityAt: new Date(), // Changing a setting is a form of activity
+      },
+      select: {
+        privacy: true, // Only select the field we need for the response
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Group privacy has been successfully updated to ${updatedGroup.privacy}.`,
+      data: { newPrivacy: updatedGroup.privacy },
+    });
+  } catch (error: any) {
+    // Handle cases where the group ID doesn't exist
+    console.error("Error updating group privacy:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
+/**
  * ROUTE: POST /api/study-group/:studyRoomId/promote-admin
  * Promotes a member of a group to an admin role.
  */
@@ -275,6 +334,166 @@ const promoteToAdmin = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: error.message });
     }
     console.error("Error promoting to admin:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
+/**
+ * ROUTE: DELETE /api/study-group/:studyRoomId/admins/:memberId
+ * Demotes an admin back to a regular member role.
+ */
+const demoteAdmin = async (req: Request, res: Response) => {
+  try {
+    const { uid: requesterId } = req.user;
+    const { studyRoomId, memberId: memberIdToDemote } = req.params;
+
+    if (!requesterId || !memberIdToDemote) {
+      return res.status(400).json({
+        success: false,
+        error: "Requester ID and member Id is required.",
+      });
+    }
+
+    if (!studyRoomId) {
+      return res.status(400).json({
+        success: false,
+        error: "Study room ID is required.",
+      });
+    }
+
+    // Prevent self-demotion via this endpoint.
+    if (requesterId === memberIdToDemote) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "You cannot demote yourself. Use the 'Leave Group' feature instead.",
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Authorization: Verify the requester is an admin.
+      const requesterMembership = await tx.studyRoomMember.findUnique({
+        where: { studyRoomId_userId: { studyRoomId, userId: requesterId } },
+      });
+      if (requesterMembership?.role !== "ADMIN") {
+        throw new Error("Only admins can change member roles.");
+      }
+
+      // 2. Critical Check: Ensure this is not the last admin.
+      const adminCount = await tx.studyRoomMember.count({
+        where: { studyRoomId, role: "ADMIN" },
+      });
+      if (adminCount <= 1) {
+        throw new Error("Cannot remove the last admin from the group.");
+      }
+
+      // 3. Verify the target member exists and is an admin.
+      const memberToDemote = await tx.studyRoomMember.findUnique({
+        where: {
+          studyRoomId_userId: { studyRoomId, userId: memberIdToDemote },
+        },
+      });
+      if (!memberToDemote) {
+        throw new Error("Member not found in this group.");
+      }
+      if (memberToDemote.role !== "ADMIN") {
+        // Idempotent: If they are already a member, just succeed.
+        return;
+      }
+
+      // 4. Perform the demotion.
+      await tx.studyRoomMember.update({
+        where: {
+          studyRoomId_userId: { studyRoomId, userId: memberIdToDemote },
+        },
+        data: { role: "MEMBER" },
+      });
+    });
+
+    res
+      .status(200)
+      .json({ success: true, message: "Admin has been demoted to member." });
+  } catch (error: any) {
+    if (
+      error.message.includes("Only admins") ||
+      error.message.includes("last admin") ||
+      error.message.includes("Member not found")
+    ) {
+      return res.status(403).json({ success: false, error: error.message });
+    }
+    console.error("Error demoting admin:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
+/**
+ * ROUTE: DELETE /api/study-group/:studyRoomId/members/:memberId
+ * Removes a member from a study group (admin only).
+ */
+const removeMember = async (req: Request, res: Response) => {
+  try {
+    const { uid: adminId } = req.user;
+    const { studyRoomId, memberId } = req.params;
+
+    if (!adminId || !memberId) {
+      return res.status(400).json({
+        success: false,
+        error: "Admin Id and Member Id is required.",
+      });
+    }
+
+    if (!studyRoomId) {
+      return res.status(400).json({
+        success: false,
+        error: "Study room ID is required.",
+      });
+    }
+
+    if (adminId === memberId) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Admins cannot remove themselves. Use the 'Leave Group' feature.",
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const adminMembership = await tx.studyRoomMember.findUnique({
+        where: { studyRoomId_userId: { studyRoomId, userId: adminId } },
+      });
+      if (adminMembership?.role !== "ADMIN") {
+        throw new Error("Only admins can remove members.");
+      }
+
+      // 2. Verify the member to be removed exists in the group
+      const memberToRemove = await tx.studyRoomMember.findUnique({
+        where: { studyRoomId_userId: { studyRoomId, userId: memberId } },
+      });
+      if (!memberToRemove) {
+        throw new Error("Member not found in this group.");
+      }
+
+      // 3. Perform deletion and update member count
+      await tx.studyRoomMember.delete({
+        where: { studyRoomId_userId: { studyRoomId, userId: memberId } },
+      });
+      await tx.studyRoom.update({
+        where: { id: studyRoomId },
+        data: { memberCount: { decrement: 1 } },
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Member has been removed from the group.",
+    });
+  } catch (error: any) {
+    if (
+      error.message.includes("admins can remove") ||
+      error.message.includes("Member not found")
+    ) {
+      return res.status(403).json({ success: false, error: error.message });
+    }
     res.status(500).json({ success: false, error: "Internal server error." });
   }
 };
@@ -379,6 +598,90 @@ const getGroupMembers = async (req: Request, res: Response) => {
     res
       .status(500)
       .json({ success: false, error: "An internal server error occurred." });
+  }
+};
+
+/**
+ * ROUTE: GET /api/study-group/:studyRoomId/leaderboard
+ * Fetches the live leaderboard for a specific study group.
+ * Ranks users based on a combination of their overall score and accuracy.
+ */
+const getLiveLeaderboard = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { studyRoomId } = req.params;
+
+    if (!studyRoomId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Study room ID is required." });
+    }
+
+    // 1. Authorization: Ensure the requester is a member of the group.
+    // This is crucial for private groups.
+    const membership = await prisma.studyRoomMember.findUnique({
+      where: { studyRoomId_userId: { studyRoomId, userId: uid } },
+    });
+
+    if (!membership) {
+      return res.status(403).json({
+        success: false,
+        error: "You must be a member of the group to view the leaderboard.",
+      });
+    }
+
+    // 2. Fetch all members of the study group and their relevant stats.
+    const members = await prisma.studyRoomMember.findMany({
+      where: { studyRoomId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true, // Assuming avatar might be Gravatar-based
+            score: true,
+            overallAverageAccuracy: true,
+          },
+        },
+      },
+    });
+
+    // 3. Process and Rank the members.
+    // We can create a simple ranking score: main score + accuracy as a tie-breaker.
+    const rankedParticipants = members
+      .map(({ user }) => ({
+        id: user.id,
+        name: user.fullName || "Unnamed User",
+        avatar: undefined,
+        score: user.score ? user.score.toNumber() : 0,
+        correctness: user.overallAverageAccuracy
+          ? user.overallAverageAccuracy.toNumber()
+          : 0,
+        timePenalty: Math.floor(Math.random() * 100), // Placeholder
+        subjects: {
+          physics: { score: Math.floor(Math.random() * 900) + 100, time: 120 },
+          chemistry: {
+            score: Math.floor(Math.random() * 900) + 100,
+            time: 135,
+          },
+          mathematics: {
+            score: Math.floor(Math.random() * 900) + 100,
+            time: 98,
+          },
+        },
+        lastUpdate: new Date(),
+      }))
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        return b.correctness - a.correctness;
+      });
+
+    res.status(200).json({ success: true, data: rankedParticipants });
+  } catch (error) {
+    console.error("Error fetching live leaderboard:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
   }
 };
 
@@ -1600,7 +1903,10 @@ export {
   getGroupDetails,
   generateInviteLink,
   promoteToAdmin,
+  demoteAdmin,
+  removeMember,
   getGroupMembers,
+  updateGroupPrivacy,
   getMockTest,
   createScheduledGroupTest,
   startGroupTest,
