@@ -11,11 +11,14 @@ import {
 } from "../controllers/challengeGroupController.js";
 import {
   createScheduledGroupTest,
+  generateInviteLink,
+  getGroupDetails,
   getGroupMembers,
   getGroupMembersForSelection,
   getGroupMockTestResults,
   getGroupTestInstanceDetails,
   getScheduledGroupTests,
+  promoteToAdmin,
   startGroupTest,
   submitScheduledTest,
 } from "../controllers/groupController.js";
@@ -40,9 +43,25 @@ import {
   joinPublicGroup,
   leaveGroup,
   deleteStudyRoom,
+  inviteMember,
+  joinGroupByLink,
 } from "../controllers/homeGroupController.js";
 import { verifyFirebaseToken } from "../middleware/authMiddleware.js";
 import router from "./authRoutes.js";
+
+router.get("/:studyRoomId/details", verifyFirebaseToken, getGroupDetails);
+
+router.post(
+  "/:studyRoomId/generate-invite-link",
+  verifyFirebaseToken,
+  generateInviteLink
+);
+
+router.post("/join-by-link/:inviteCode", verifyFirebaseToken, joinGroupByLink);
+
+router.post("/:studyRoomId/promote-admin", verifyFirebaseToken, promoteToAdmin);
+
+router.post("/:studyRoomId/invite", verifyFirebaseToken, inviteMember);
 
 router.get("/:studyRoomId/members", verifyFirebaseToken, getGroupMembers);
 

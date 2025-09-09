@@ -40,7 +40,7 @@ const generateQuiz = async (req: Request, res: Response) => {
       questionCount, // Expecting a number from 1-6
       timeLimitMinutes,
       questionTypes, // Expecting an array like ['theoretical', 'conceptual']
-      recommendationId,
+      recommendedId,
     } = req.body;
 
     // Rigorous validation for the new constraints
@@ -262,9 +262,9 @@ const generateQuiz = async (req: Request, res: Response) => {
         },
       });
 
-      if (recommendationId) {
+      if (recommendedId) {
         await tx.dailyRecommendation.update({
-          where: { id: recommendationId, userId: uid }, // Security check
+          where: { id: recommendedId, userId: uid }, // Security check
           data: { generatedTestInstanceId: newTestInstance.id },
         });
       }
@@ -403,13 +403,13 @@ const generateDrill = async (req: Request, res: Response) => {
       difficultyLevels,
       questionCount,
       timeLimitMinutes,
-      recommendationId,
+      recommendedId,
     } = req.body;
 
-    if (!examId || !questionCount || !timeLimitMinutes) {
+    if (!examId || !questionCount || !timeLimitMinutes || !recommendedId) {
       return res.status(400).json({
         error:
-          "Missing required fields: examId, questionCount, and timeLimitMinutes are required.",
+          "Missing required fields: examId, questionCount, timeLimitMinutes and recommendedId are required.",
       });
     }
 
@@ -424,6 +424,8 @@ const generateDrill = async (req: Request, res: Response) => {
         .status(400)
         .json({ error: "Time limit must be between 1 and 360 minutes." });
     }
+
+    console.log(recommendedId, "recommendedId");
 
     // --- 2. Build Prisma Query ---
     const whereClause: Prisma.QuestionWhereInput = {
@@ -506,9 +508,9 @@ const generateDrill = async (req: Request, res: Response) => {
         },
       });
 
-      if (recommendationId) {
+      if (recommendedId) {
         await tx.dailyRecommendation.update({
-          where: { id: recommendationId, userId: uid }, // Security check
+          where: { id: recommendedId, userId: uid }, // Security check
           data: { generatedTestInstanceId: newTestInstance.id },
         });
       }
@@ -1035,7 +1037,6 @@ const submitDrill = async (req: Request, res: Response) => {
     await prisma.dailyRecommendation.updateMany({
       where: {
         generatedTestInstanceId: testInstanceId,
-        userId: uid,
       },
       data: {
         status: "COMPLETED",

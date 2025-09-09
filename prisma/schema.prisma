@@ -455,6 +455,7 @@ model StudyRoomInvite {
   expiresAt   DateTime?
   usageLimit  Int?
   usageCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
 
   studyRoom StudyRoom @relation(fields: [studyRoomId], references: [id], onDelete: Cascade)
 }

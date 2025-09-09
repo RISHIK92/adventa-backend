@@ -48,6 +48,8 @@ const getDailyPlan = async (req: Request, res: Response) => {
       },
     });
 
+    console.log(existingRecommendation, "dfvkf");
+
     if (existingRecommendation) {
       let responseData = existingRecommendation.recommendation as any;
       if (!responseData) {
@@ -80,7 +82,8 @@ const getDailyPlan = async (req: Request, res: Response) => {
         responseData = {
           ...responseData,
           studyLink,
-          recommendedId: existingRecommendation.id, // <-- Always add this
+          recommendedId: existingRecommendation.id,
+          status: existingRecommendation.status, // <-- Add status here
           action: {
             ...responseData.action,
             parameters: {
@@ -94,6 +97,10 @@ const getDailyPlan = async (req: Request, res: Response) => {
         responseData = {
           ...responseData,
           recommendedId: existingRecommendation.id,
+          status: existingRecommendation.status, // <-- Add status here
+          action: {
+            ...responseData.action,
+          },
         };
       }
 

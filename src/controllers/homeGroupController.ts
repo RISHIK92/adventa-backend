@@ -12,6 +12,10 @@ const publicGroupsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
 });
 
+const inviteMemberBodySchema = z.object({
+  email: z.string().email({ message: "A valid email address is required." }),
+});
+
 /**
  * ROUTE: GET /api/groups/my-groups
  * Fetches all groups the authenticated user is a member or owner of.
@@ -159,6 +163,191 @@ const getGroupInvitations = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching invitations:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+/**
+ * ROUTE: POST /api/study-group/:studyRoomId/invite
+ * Invites a user to a study group by their email address.
+ */
+const inviteMember = async (req: Request, res: Response) => {
+  try {
+    const { uid: inviterId } = req.user;
+    const { studyRoomId } = req.params;
+
+    if (!studyRoomId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Study Room ID is required." });
+    }
+
+    // 1. Validate request body
+    const validation = inviteMemberBodySchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error.flatten().fieldErrors.email?.[0],
+      });
+    }
+    const { email: inviteeEmail } = validation.data;
+
+    // 2. Authorization: Ensure the person sending the invite is a member of the group
+    const inviterMembership = await prisma.studyRoomMember.findUnique({
+      where: {
+        studyRoomId_userId: { studyRoomId, userId: inviterId },
+      },
+      select: { user: { select: { email: true } } },
+    });
+
+    if (!inviterMembership) {
+      return res.status(403).json({
+        success: false,
+        error: "You must be a member of the group to invite others.",
+      });
+    }
+
+    // 3. Prevent self-invitation
+    if (inviterMembership.user.email === inviteeEmail) {
+      return res
+        .status(400)
+        .json({ success: false, error: "You cannot invite yourself." });
+    }
+
+    // 4. Find the user to be invited
+    const invitee = await prisma.user.findUnique({
+      where: { email: inviteeEmail },
+    });
+
+    if (!invitee) {
+      return res.status(404).json({
+        success: false,
+        error: "No user found with this email address.",
+      });
+    }
+
+    // 5. Check if the user is already a member or has a pending invitation
+    const [existingMembership, existingInvitation] = await Promise.all([
+      prisma.studyRoomMember.findUnique({
+        where: {
+          studyRoomId_userId: { studyRoomId, userId: invitee.id },
+        },
+      }),
+      prisma.studyRoomInvitation.findFirst({
+        where: {
+          studyRoomId,
+          inviteeId: invitee.id,
+          status: "PENDING",
+        },
+      }),
+    ]);
+
+    if (existingMembership) {
+      return res.status(409).json({
+        success: false,
+        error: "This user is already a member of the group.",
+      });
+    }
+
+    if (existingInvitation) {
+      return res.status(409).json({
+        success: false,
+        error: "An invitation has already been sent to this user.",
+      });
+    }
+
+    // 6. Create the invitation
+    await prisma.studyRoomInvitation.create({
+      data: {
+        studyRoomId,
+        inviterId,
+        inviteeId: invitee.id,
+      },
+    });
+
+    res
+      .status(201)
+      .json({ success: true, message: `Invitation sent to ${inviteeEmail}.` });
+  } catch (error) {
+    console.error("Error inviting member:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
+/**
+ * ROUTE: POST /api/study-group/join-by-link/:inviteCode
+ * Allows a logged-in user to join a group using a shareable link.
+ */
+const joinGroupByLink = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { inviteCode } = req.params;
+
+    if (!inviteCode) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invite code is required." });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Find the invite link
+      const invite = await tx.studyRoomInvite.findUnique({
+        where: { code: inviteCode },
+        include: {
+          studyRoom: {
+            select: { maxMembers: true, _count: { select: { members: true } } },
+          },
+        },
+      });
+
+      if (!invite || new Date() > new Date(invite.expiresAt!)) {
+        throw new Error("Invalid or expired invite link.");
+      }
+
+      const { studyRoomId, studyRoom } = invite;
+
+      // 2. Check if room is full
+      if (
+        studyRoom.maxMembers &&
+        studyRoom._count.members >= studyRoom.maxMembers
+      ) {
+        throw new Error("This group is full.");
+      }
+
+      // 3. Check if user is already a member (idempotent)
+      const existingMembership = await tx.studyRoomMember.findUnique({
+        where: { studyRoomId_userId: { studyRoomId, userId: uid } },
+      });
+      if (existingMembership) {
+        // If already a member, just return success without doing anything.
+        return;
+      }
+
+      // 4. Add user to group and update counts
+      await tx.studyRoomMember.create({
+        data: { studyRoomId, userId: uid, role: "MEMBER" },
+      });
+      await tx.studyRoom.update({
+        where: { id: studyRoomId },
+        data: { memberCount: { increment: 1 } },
+      });
+      await tx.studyRoomInvite.update({
+        where: { id: invite.id },
+        data: { usageCount: { increment: 1 } },
+      });
+    });
+
+    res
+      .status(200)
+      .json({ success: true, message: "Successfully joined the group." });
+  } catch (error: any) {
+    if (
+      error.message.includes("Invalid or expired") ||
+      error.message.includes("full")
+    ) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+    console.error("Error joining group by link:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
   }
 };
 
@@ -622,6 +811,8 @@ export {
   getMyGroups,
   createGroup,
   getGroupInvitations,
+  inviteMember,
+  joinGroupByLink,
   respondToInvitation,
   getPublicGroups,
   getQuickStats,

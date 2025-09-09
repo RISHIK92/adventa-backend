@@ -9,6 +9,16 @@ import {
   updateGlobalSubjectAverages,
   updateUserOverallAverage,
 } from "../utils/globalStatsUpdater.js";
+import { nanoid } from "nanoid";
+
+const generateInviteLinkBodySchema = z.object({
+  // Expiry in hours from now.
+  expiresInHours: z.coerce.number().int().min(1).max(720).default(72),
+});
+
+const promoteAdminBodySchema = z.object({
+  memberIdToPromote: z.string().nonempty({ message: "Member ID is required." }),
+});
 
 const createScheduledTestSchema = z
   .object({
@@ -41,6 +51,233 @@ const createScheduledTestSchema = z
       path: ["difficultyDistribution"],
     }
   );
+
+const getGroupDetails = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { studyRoomId } = req.params;
+
+    if (!studyRoomId) {
+      return res.status(400).json({
+        success: false,
+        error: "Study room ID is required.",
+      });
+    }
+
+    // 1. Authorization: Ensure the user is a member of the group
+    const membership = await prisma.studyRoomMember.findUnique({
+      where: { studyRoomId_userId: { studyRoomId, userId: uid } },
+    });
+
+    if (!membership) {
+      return res
+        .status(403)
+        .json({ success: false, error: "You are not a member of this group." });
+    }
+
+    // 2. Fetch group details
+    const group = await prisma.studyRoom.findUnique({
+      where: { id: studyRoomId },
+      include: {
+        _count: { select: { members: true } },
+        members: {
+          take: 3,
+          orderBy: { role: "asc" }, // Show admins first
+          include: { user: { select: { fullName: true } } },
+        },
+        // Find the most recent, non-expired invite code
+        inviteCodes: {
+          where: { expiresAt: { gt: new Date() } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!group) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Group not found." });
+    }
+
+    // 3. Format the response
+    const inviteCode = group.inviteCodes[0]?.code;
+    const inviteLink = inviteCode
+      ? `https://studygroup.app/join/${group.name.replace(
+          /\s+/g,
+          "-"
+        )}/${inviteCode}`
+      : null;
+
+    res.json({
+      success: true,
+      data: {
+        name: group.name,
+        privacy: group.privacy,
+        memberCount: group._count.members,
+        sampleMembers: group.members.map((m: any) => m.user.fullName),
+        yourRole: membership.role, // Let the frontend know if the user is an admin
+        inviteLink: inviteLink,
+        inviteLinkExpiry: group.inviteCodes[0]?.expiresAt || null,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching group details:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
+/**
+ * ROUTE: POST /api/study-group/:studyRoomId/generate-invite-link
+ * Generates or regenerates a shareable invite link for a group.
+ */
+const generateInviteLink = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { studyRoomId } = req.params;
+
+    if (!studyRoomId) {
+      return res.status(400).json({
+        success: false,
+        error: "Study room ID is required.",
+      });
+    }
+
+    // 1. Validate request body
+    const validation = generateInviteLinkBodySchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error.flatten().fieldErrors,
+      });
+    }
+    const { expiresInHours } = validation.data;
+
+    const newInvite = await prisma.$transaction(async (tx) => {
+      // 2. Authorization: User must be an ADMIN
+      const membership = await tx.studyRoomMember.findUnique({
+        where: { studyRoomId_userId: { studyRoomId, userId: uid } },
+      });
+      if (membership?.role !== "ADMIN") {
+        throw new Error("Only admins can generate invite links.");
+      }
+
+      // 3. Deactivate old links to ensure only one is active
+      await tx.studyRoomInvite.updateMany({
+        where: { studyRoomId },
+        data: { expiresAt: new Date() }, // Set expiry to now
+      });
+
+      // 4. Create the new invite link
+      const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+      const newCode = nanoid(12); // e.g., '2euhrfnjdjm'
+
+      return tx.studyRoomInvite.create({
+        data: {
+          studyRoomId,
+          code: newCode,
+          expiresAt,
+        },
+      });
+    });
+
+    const studyRoom = await prisma.studyRoom.findUnique({
+      where: { id: studyRoomId },
+      select: { name: true },
+    });
+    const inviteLink = `https://studygroup.app/join/${studyRoom?.name.replace(
+      /\s+/g,
+      "-"
+    )}/${newInvite.code}`;
+
+    res.status(201).json({
+      success: true,
+      data: {
+        inviteLink: inviteLink,
+        expiresAt: newInvite.expiresAt,
+      },
+    });
+  } catch (error: any) {
+    if (error.message.includes("admins can generate")) {
+      return res.status(403).json({ success: false, error: error.message });
+    }
+    console.error("Error generating invite link:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
+/**
+ * ROUTE: POST /api/study-group/:studyRoomId/promote-admin
+ * Promotes a member of a group to an admin role.
+ */
+const promoteToAdmin = async (req: Request, res: Response) => {
+  try {
+    const { uid: promoterId } = req.user;
+    const { studyRoomId } = req.params;
+
+    if (!studyRoomId) {
+      return res.status(400).json({
+        success: false,
+        error: "Study room ID is required.",
+      });
+    }
+
+    const validation = promoteAdminBodySchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error.flatten().fieldErrors,
+      });
+    }
+    const { memberIdToPromote } = validation.data;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Fetch both memberships to perform checks
+      const memberships = await tx.studyRoomMember.findMany({
+        where: { studyRoomId, userId: { in: [promoterId, memberIdToPromote] } },
+      });
+
+      const promoter = memberships.find((m) => m.userId === promoterId);
+      const memberToPromote = memberships.find(
+        (m) => m.userId === memberIdToPromote
+      );
+
+      // 2. Authorization and Validation
+      if (promoter?.role !== "ADMIN") {
+        throw new Error("Only admins can promote other members.");
+      }
+      if (!memberToPromote) {
+        throw new Error("Member not found in this group.");
+      }
+      if (memberToPromote.role === "ADMIN") {
+        // Already an admin, no action needed.
+        return;
+      }
+
+      // 3. Update the member's role
+      await tx.studyRoomMember.update({
+        where: {
+          studyRoomId_userId: { studyRoomId, userId: memberIdToPromote },
+        },
+        data: { role: "ADMIN" },
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Member successfully promoted to admin.",
+    });
+  } catch (error: any) {
+    if (
+      error.message.includes("Only admins") ||
+      error.message.includes("Member not found")
+    ) {
+      return res.status(403).json({ success: false, error: error.message });
+    }
+    console.error("Error promoting to admin:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
 
 /**
  * ROUTE: GET /api/study-group/:studyRoomId/members
@@ -1360,6 +1597,9 @@ function _formatQuestionReview(
 }
 
 export {
+  getGroupDetails,
+  generateInviteLink,
+  promoteToAdmin,
   getGroupMembers,
   getMockTest,
   createScheduledGroupTest,
