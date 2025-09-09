@@ -7,6 +7,7 @@ import pyqRouter from "./routes/pyqRoutes.js";
 import practiceRouter from "./routes/practiceRoutes.js";
 import groupRouter from "./routes/groupRoutes.js";
 import aiPipelineRouter from "./routes/aiPipelineRoutes.js";
+import drillRouter from "./routes/drillRoutes.js";
 import cors from "cors";
 
 const app = express();
@@ -21,6 +22,7 @@ app.use("/custom-quiz", quizRouter);
 app.use("/practice", practiceRouter);
 app.use("/study-group", groupRouter);
 app.use("/ai-pipelines", aiPipelineRouter);
+app.use("/drill", drillRouter);
 
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");

@@ -650,12 +650,16 @@ model DailyRecommendation {
   userId          String
   examId          Int
   recommendation  Json // Stores the full JSON output from the AI
+
+  status                  RecommendationStatus @default(PENDING)
+  generatedTestInstanceId String?              @unique
   createdAt       DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
 
   @@index([userId, examId, createdAt(sort: Desc)])
+  @@index([generatedTestInstanceId])
 }
 
 // --- ENUMS ---
@@ -719,4 +723,10 @@ enum TestType {
   custom
   weakness
   pyq
+}
+
+enum RecommendationStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
 }

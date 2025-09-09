@@ -8,11 +8,10 @@ import {
   updateUserOverallAverage,
   updateGlobalSubjectAverages,
 } from "../utils/globalStatsUpdater.js";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // Define a type for the expected LLM output structure for better type safety
 type GeneratedQuestion = {
@@ -24,7 +23,7 @@ type GeneratedQuestion = {
 
 /**
  * ROUTE: POST /quiz/generate
- * Generates a new AI-powered quiz with theoretical questions.
+ * Generates a new AI-powered quiz with theoretical questions using Gemini 1.5 Flash.
  */
 const generateQuiz = async (req: Request, res: Response) => {
   try {
@@ -41,6 +40,7 @@ const generateQuiz = async (req: Request, res: Response) => {
       questionCount, // Expecting a number from 1-6
       timeLimitMinutes,
       questionTypes, // Expecting an array like ['theoretical', 'conceptual']
+      recommendationId,
     } = req.body;
 
     // Rigorous validation for the new constraints
@@ -91,6 +91,11 @@ const generateQuiz = async (req: Request, res: Response) => {
 
     // For the schema constraint, we need to associate new questions with a subtopic.
     // We'll fetch the first available subtopic from the first topic provided.
+    if (!topics[0]) {
+      return res.status(400).json({
+        error: "No topics found to associate questions with.",
+      });
+    }
     const firstSubtopic = await prisma.subtopic.findFirst({
       where: { topicId: topics[0].id },
       select: { id: true },
@@ -139,22 +144,36 @@ const generateQuiz = async (req: Request, res: Response) => {
           }
         ]
       }
+
+      IMPORTANT: Respond only with valid JSON. Do not include any text before or after the JSON object.
     `;
 
-    // --- 4. Call LLM to Generate Questions ---
+    // --- 4. Call Gemini to Generate Questions ---
     let generatedQuestions: GeneratedQuestion[];
 
     try {
-      const llmResponse = await openai.chat.completions.create({
-        model: "gpt-4-turbo-preview", // Or "gpt-3.5-turbo" for faster/cheaper generation
-        messages: [{ role: "user", content: llmPrompt }],
-        response_format: { type: "json_object" },
+      // Get the generative model
+      const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+        },
       });
 
-      const responseContent = llmResponse.choices[0].message.content;
-      if (!responseContent) throw new Error("LLM returned an empty response.");
+      const result = await model.generateContent(llmPrompt);
+      const response = await result.response;
+      const responseText = response.text();
 
-      const parsedJson = JSON.parse(responseContent);
+      if (!responseText) {
+        throw new Error("Gemini returned an empty response.");
+      }
+
+      // Clean the response text to ensure it's valid JSON
+      const cleanedResponse = responseText.trim().replace(/```json|```/g, "");
+      const parsedJson = JSON.parse(cleanedResponse);
       generatedQuestions = parsedJson.generated_questions;
 
       // --- 5. Validate LLM Output ---
@@ -163,12 +182,42 @@ const generateQuiz = async (req: Request, res: Response) => {
         generatedQuestions.length !== questionCount
       ) {
         throw new Error(
-          `LLM output validation failed. Expected ${questionCount} questions, but got ${generatedQuestions.length}.`
+          `Gemini output validation failed. Expected ${questionCount} questions, but got ${
+            generatedQuestions?.length || 0
+          }.`
         );
       }
-      // Add more checks here if needed (e.g., check for all required fields in each object)
-    } catch (llmError) {
-      console.error("LLM Generation or Parsing Failed:", llmError);
+
+      // Validate each question has required fields
+      for (const question of generatedQuestions) {
+        if (
+          !question.question_text ||
+          !question.options ||
+          !question.correct_option ||
+          !question.solution_explanation
+        ) {
+          throw new Error("Generated question is missing required fields.");
+        }
+
+        // Validate options structure
+        const options = question.options;
+        if (
+          typeof options !== "object" ||
+          !options.A ||
+          !options.B ||
+          !options.C ||
+          !options.D
+        ) {
+          throw new Error("Generated question options are invalid.");
+        }
+
+        // Validate correct option
+        if (!["A", "B", "C", "D"].includes(question.correct_option)) {
+          throw new Error("Generated question has invalid correct option.");
+        }
+      }
+    } catch (geminiError) {
+      console.error("Gemini Generation or Parsing Failed:", geminiError);
       return res.status(503).json({
         success: false,
         error: "Failed to generate AI questions. Please try again later.",
@@ -198,12 +247,12 @@ const generateQuiz = async (req: Request, res: Response) => {
       // Create the test instance for the user
       const newTestInstance = await tx.userTestInstanceSummary.create({
         data: {
-          userId: uid,
-          examId: examId,
+          userId: String(uid), // Ensure string
+          examId: Number(examId), // Ensure number
           testName: `AI Quiz: ${topicNames}`,
           testType: "quiz",
           score: 0,
-          totalMarks: questionCount * 1, // Assuming 4 marks per question
+          totalMarks: questionCount * 1, // Assuming 1 mark per question
           totalQuestions: questionCount,
           numUnattempted: questionCount,
           numCorrect: 0,
@@ -212,6 +261,13 @@ const generateQuiz = async (req: Request, res: Response) => {
           generatedQuestionIds: newQuestionIds, // Store the IDs of the newly created questions
         },
       });
+
+      if (recommendationId) {
+        await tx.dailyRecommendation.update({
+          where: { id: recommendationId, userId: uid }, // Security check
+          data: { generatedTestInstanceId: newTestInstance.id },
+        });
+      }
 
       return newTestInstance;
     });
@@ -335,6 +391,7 @@ const generateDrill = async (req: Request, res: Response) => {
   try {
     // --- 1. Authentication & Input Validation ---
     const { uid } = req.user;
+
     if (!uid) {
       return res.status(401).json({ error: "User not authenticated." });
     }
@@ -346,6 +403,7 @@ const generateDrill = async (req: Request, res: Response) => {
       difficultyLevels,
       questionCount,
       timeLimitMinutes,
+      recommendationId,
     } = req.body;
 
     if (!examId || !questionCount || !timeLimitMinutes) {
@@ -420,24 +478,57 @@ const generateDrill = async (req: Request, res: Response) => {
 
     // --- 5. Create Test Instance in a Transaction ---
     const testName = `Drill (${questionCount} Questions)`;
-    const totalMarks = questionCount * 4; // Assuming 4 marks per question, adjust as needed
 
-    const testInstance = await prisma.userTestInstanceSummary.create({
-      data: {
-        userId: uid,
-        examId: examId,
-        testName: testName,
-        testType: "drill", // Set testType to "drill"
-        score: 0,
-        totalMarks: totalMarks,
-        totalQuestions: questionCount,
-        numUnattempted: questionCount,
-        numCorrect: 0,
-        numIncorrect: 0,
-        // The time limit is set here, the same field is used for `getCustomQuizDataForTaking`
-        timeTakenSec: timeLimitMinutes * 60,
-        generatedQuestionIds: finalQuestionIds,
-      },
+    const testInstance = await prisma.$transaction(async (tx) => {
+      // 1. Fetch current user performance for the selected topics
+      const currentPerformance = await tx.userTopicPerformance.findMany({
+        where: {
+          userId: uid,
+          topicId: { in: topicIds },
+        },
+      });
+
+      // 2. Create the test instance summary FIRST to get its ID
+      const newTestInstance = await tx.userTestInstanceSummary.create({
+        data: {
+          userId: String(uid),
+          examId: Number(examId),
+          testName: testName,
+          testType: "drill",
+          score: 0,
+          totalMarks: Number(questionCount) * 1,
+          totalQuestions: Number(questionCount),
+          numUnattempted: Number(questionCount),
+          numCorrect: 0,
+          numIncorrect: 0,
+          timeTakenSec: Number(timeLimitMinutes) * 60,
+          generatedQuestionIds: finalQuestionIds,
+        },
+      });
+
+      if (recommendationId) {
+        await tx.dailyRecommendation.update({
+          where: { id: recommendationId, userId: uid }, // Security check
+          data: { generatedTestInstanceId: newTestInstance.id },
+        });
+      }
+
+      // 3. Prepare the snapshot data using the new testInstanceId
+      if (currentPerformance.length > 0) {
+        const snapshotData = currentPerformance.map((perf) => ({
+          testInstanceId: newTestInstance.id,
+          topicId: perf.topicId,
+          accuracyPercentBefore: perf.accuracyPercent,
+          totalAttemptedBefore: perf.totalAttempted,
+        }));
+
+        // 4. Create the performance snapshots
+        await tx.testTopicSnapshot.createMany({
+          data: snapshotData,
+        });
+      }
+
+      return newTestInstance;
     });
 
     res.status(201).json({
@@ -480,7 +571,6 @@ const getDrillDataForTaking = async (req: Request, res: Response) => {
       where: {
         id: testInstanceId,
         userId: uid,
-        testType: "drill", // Changed from "custom"
       },
       include: {
         exam: true,
@@ -778,10 +868,13 @@ const submitDrill = async (req: Request, res: Response) => {
             totalAttempted: update.attempted,
             totalCorrect: update.correct,
             totalIncorrect: update.attempted - update.correct,
-            totalTimeTakenSec: update.time,
-            accuracyPercent: (update.correct / update.attempted) * 100,
+            totalTimeTakenSec: update.time, // <-- FIXED: use direct value, not { increment: ... }
+            accuracyPercent:
+              newTotalAttempted > 0
+                ? (newTotalCorrect / newTotalAttempted) * 100
+                : 0,
             avgTimePerQuestionSec:
-              update.attempted > 0 ? update.time / update.attempted : 0,
+              newTotalAttempted > 0 ? newTotalTimeTaken / newTotalAttempted : 0,
           },
           update: {
             totalAttempted: { increment: update.attempted },
@@ -923,10 +1016,7 @@ const submitDrill = async (req: Request, res: Response) => {
       );
     }
 
-    // Final score calculation assuming 4 marks for correct, -1 for incorrect
-    const finalScore =
-      totalCorrect * testInstance.exam.marksPerCorrect -
-      totalIncorrect * testInstance.exam.negativeMarksPerIncorrect;
+    const finalScore = totalCorrect;
     transactionPromises.push(
       prisma.userTestInstanceSummary.update({
         where: { id: testInstanceId },
@@ -941,9 +1031,17 @@ const submitDrill = async (req: Request, res: Response) => {
       })
     );
 
-    // Question average time update is omitted for brevity but would be identical to the custom quiz submit
-
     await prisma.$transaction(transactionPromises);
+    await prisma.dailyRecommendation.updateMany({
+      where: {
+        generatedTestInstanceId: testInstanceId,
+        userId: uid,
+      },
+      data: {
+        status: "COMPLETED",
+      },
+    });
+
     await redisClient.del(redisKey);
 
     void updateGlobalTopicAverages(topicIds);
@@ -996,7 +1094,6 @@ const getDrillResults = async (req: Request, res: Response) => {
       where: {
         id: testInstanceId,
         userId: uid,
-        testType: "drill", // Changed from "custom"
         completedAt: { not: null },
       },
       include: {
@@ -1015,6 +1112,7 @@ const getDrillResults = async (req: Request, res: Response) => {
             },
           },
         },
+        topicSnapshots: true,
       },
     });
 
@@ -1023,6 +1121,24 @@ const getDrillResults = async (req: Request, res: Response) => {
         success: false,
         error: "Completed drill result not found for this user.",
       });
+    }
+
+    let previousOverallAccuracy = null;
+    if (testInstance.topicSnapshots.length > 0) {
+      const totalWeightedAccuracy = testInstance.topicSnapshots.reduce(
+        (acc, s) =>
+          acc + Number(s.accuracyPercentBefore) * s.totalAttemptedBefore,
+        0
+      );
+
+      const totalAttemptsBefore = testInstance.topicSnapshots.reduce(
+        (acc, s) => acc + s.totalAttemptedBefore,
+        0
+      );
+
+      if (totalAttemptsBefore > 0) {
+        previousOverallAccuracy = totalWeightedAccuracy / totalAttemptsBefore;
+      }
     }
 
     const topicPerformanceAggregator = new Map<
@@ -1111,12 +1227,14 @@ const getDrillResults = async (req: Request, res: Response) => {
         summary: {
           testInstanceId: testInstance.id,
           testName: testInstance.testName,
+          testType: testInstance.testType,
           score: testInstance.score,
           totalMarks: testInstance.totalMarks,
           totalQuestions: testInstance.totalQuestions,
           numCorrect: testInstance.numCorrect,
           numIncorrect: testInstance.numIncorrect,
           numUnattempted: testInstance.numUnattempted,
+          previousOverallAccuracy: previousOverallAccuracy,
           timeTakenSec: testInstance.timeTakenSec,
           completedAt: testInstance.completedAt,
         },
@@ -1130,11 +1248,43 @@ const getDrillResults = async (req: Request, res: Response) => {
   }
 };
 
+const completeDailyRecommendation = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { recommendationId } = req.params;
+
+    if (!recommendationId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Recommendation ID is required." });
+    }
+
+    await prisma.dailyRecommendation.update({
+      where: {
+        id: recommendationId,
+        userId: uid,
+      },
+      data: {
+        status: "COMPLETED",
+      },
+    });
+
+    res
+      .status(200)
+      .json({ success: true, message: "Recommendation marked as completed." });
+  } catch (error) {
+    console.error("Error completing recommendation:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+};
+
 export {
+  generateQuiz,
   getDrillDashboard,
   getDrillOptions,
   generateDrill,
   getDrillDataForTaking,
   submitDrill,
   getDrillResults,
+  completeDailyRecommendation,
 };

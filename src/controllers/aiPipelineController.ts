@@ -1,17 +1,20 @@
 import type { Request, Response } from "express";
 import { prisma } from "../services/db.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Decimal } from "@prisma/client/runtime/library";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 /**
  * ROUTE: GET /ai-pipelines/daily-plan/:examId
  * The core AI pipeline to generate a personalized "Plan for the Day" for a user.
+ * Implements a "study -> practice" cycle and has the LLM select a topicId,
+ * which the backend then enriches with the correct study link.
  */
 const getDailyPlan = async (req: Request, res: Response) => {
   try {
-    // --- PHASE 1: AUTHENTICATION & CONTEXT GATHERING ---
+    // --- PHASE 1: AUTHENTICATION, VALIDATION & CACHE CHECK ---
     const { uid } = req.user;
     const { examId } = req.params;
 
@@ -30,7 +33,7 @@ const getDailyPlan = async (req: Request, res: Response) => {
     }
 
     const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0); // Set time to midnight at the beginning of the day
+    startOfToday.setHours(0, 0, 0, 0);
 
     const existingRecommendation = await prisma.dailyRecommendation.findFirst({
       where: {
@@ -46,49 +49,109 @@ const getDailyPlan = async (req: Request, res: Response) => {
     });
 
     if (existingRecommendation) {
-      console.log(
-        `[AI Coach] Serving existing recommendation for user ${uid} for today.`
-      );
+      let responseData = existingRecommendation.recommendation as any;
+      if (!responseData) {
+        return res
+          .status(404)
+          .json({ success: false, error: "No recommendation found." });
+      }
+      if (
+        !responseData.title ||
+        !responseData.rationale ||
+        !responseData.action
+      ) {
+        return res
+          .status(500)
+          .json({ success: false, error: "Corrupt recommendation data." });
+      }
+
+      // If it's a RECOMMEND_STUDY, always enrich with the latest studyLink from DB
+      if (responseData.action?.type === "RECOMMEND_STUDY") {
+        const selectedTopicId: number = Number(
+          responseData.action.parameters.topicId
+        );
+        const topicDetail = await prisma.topic.findUnique({
+          where: { id: selectedTopicId },
+          select: { studyMaterialLink: true },
+        });
+        const studyLink = topicDetail?.studyMaterialLink ?? null;
+
+        // Add/overwrite studyLink in both parameters and top-level
+        responseData = {
+          ...responseData,
+          studyLink,
+          recommendedId: existingRecommendation.id, // <-- Always add this
+          action: {
+            ...responseData.action,
+            parameters: {
+              ...responseData.action.parameters,
+              studyLink,
+            },
+          },
+        };
+      } else {
+        // For all other types, still add recommendedId
+        responseData = {
+          ...responseData,
+          recommendedId: existingRecommendation.id,
+        };
+      }
+
       return res.status(200).json({
         success: true,
-        data: existingRecommendation.recommendation,
+        data: responseData,
       });
     }
 
+    // --- PHASE 2: DYNAMIC CONTEXT GATHERING ---
     const [
-      userSummary,
-      weakestSubtopics,
-      topicPerformances,
+      subjectPerformances,
+      allCompletedTests,
+      mockTestCount,
+      allTopicPerformances, // Get ALL topic performances, not just weakest
       allTopicsForExam,
       weeklyActivity,
       previousRecommendations,
       studyGroupMembership,
     ] = await Promise.all([
-      prisma.userExamOverallSummary.findUnique({
-        where: { userId_examId: { userId: uid, examId: numericExamId } },
+      prisma.userSubjectPerformance.findMany({
+        where: { userId: uid, subject: { examId: numericExamId } },
+        include: { subject: { select: { name: true } } },
       }),
-      // Fetch weakest areas, now including the topic's study link
-      prisma.userSubtopicPerformance.findMany({
+      prisma.userTestInstanceSummary.findMany({
         where: {
           userId: uid,
-          subtopic: { topic: { subject: { examId: numericExamId } } },
+          examId: numericExamId,
+          completedAt: { not: null },
         },
-        orderBy: { accuracyPercent: "asc" },
-        take: 5,
+        select: { numCorrect: true, numIncorrect: true },
+      }),
+      prisma.userTestInstanceSummary.count({
+        where: {
+          userId: uid,
+          examId: numericExamId,
+          testType: "mock",
+          completedAt: { not: null },
+        },
+      }),
+      // Get ALL topic performances with complete data
+      prisma.userTopicPerformance.findMany({
+        where: {
+          userId: uid,
+          topic: { subject: { examId: numericExamId } },
+        },
         include: {
-          subtopic: {
-            include: {
-              topic: {
-                select: { name: true, studyMaterialLink: true },
-              },
+          topic: {
+            select: {
+              id: true,
+              name: true,
+              examWeightage: true,
+              studyMaterialLink: true,
             },
           },
         },
+        orderBy: { accuracyPercent: "asc" }, // Still order by accuracy for easy identification
       }),
-      prisma.userTopicPerformance.findMany({
-        where: { userId: uid, topic: { subject: { examId: numericExamId } } },
-      }),
-      // Fetch all exam topics, including their study links
       prisma.topic.findMany({
         where: { subject: { examId: numericExamId } },
         select: {
@@ -110,13 +173,13 @@ const getDailyPlan = async (req: Request, res: Response) => {
       prisma.dailyRecommendation.findMany({
         where: { userId: uid, examId: numericExamId },
         orderBy: { createdAt: "desc" },
-        take: 3,
+        take: 5, // Get more previous recommendations for better context
       }),
       prisma.studyRoomMember.findFirst({ where: { userId: uid } }),
     ]);
 
-    // Handle new users: If no summary, they need to start with a diagnostic test.
-    if (!userSummary || userSummary.totalMockTestsCompleted < 1) {
+    // --- PHASE 3: ON-THE-FLY PERFORMANCE CALCULATION & NEW USER CHECK ---
+    if (allCompletedTests.length === 0) {
       const basicPlan = {
         title: "Start with a Diagnostic Test",
         rationale:
@@ -130,140 +193,278 @@ const getDailyPlan = async (req: Request, res: Response) => {
           },
         },
       };
+      await prisma.dailyRecommendation.create({
+        data: {
+          userId: uid,
+          examId: numericExamId,
+          recommendation: basicPlan,
+        },
+      });
       return res.status(200).json({ success: true, data: basicPlan });
     }
 
-    // --- PHASE 2: ENHANCED CONTEXT SYNTHESIS ---
+    const totalCorrect = allCompletedTests.reduce(
+      (sum, test) => sum + test.numCorrect,
+      0
+    );
+    const totalIncorrect = allCompletedTests.reduce(
+      (sum, test) => sum + test.numIncorrect,
+      0
+    );
+    const totalAttemptedOverall = totalCorrect + totalIncorrect;
+    const overallAccuracyPercent =
+      totalAttemptedOverall > 0
+        ? new Decimal((totalCorrect / totalAttemptedOverall) * 100)
+        : new Decimal(0);
 
-    // Identify if the user is a "Top Performer"
-    const isTopPerformer = userSummary.overallAccuracyPercent.greaterThan(85);
+    const isTopPerformer = overallAccuracyPercent.greaterThan(85);
 
-    // Calculate Lagging Topics
-    const totalQuestionsPracticed = topicPerformances.reduce(
+    // Create comprehensive topic analysis
+    const totalQuestionsPracticed = allTopicPerformances.reduce(
       (sum, p) => sum + p.totalAttempted,
       0
     );
-    const userPracticeDistribution = new Map(
-      topicPerformances.map((p) => [p.topicId, p.totalAttempted])
-    );
-    const laggingTopics = allTopicsForExam
-      .filter((topic) => {
-        const examShare = parseFloat(topic.examWeightage as any);
-        const userPracticeShare =
-          totalQuestionsPracticed > 0
-            ? ((userPracticeDistribution.get(topic.id) || 0) /
-                totalQuestionsPracticed) *
-              100
-            : 0;
-        return userPracticeShare < examShare * 0.5 && examShare > 2;
-      })
-      .map((t) => t.name);
 
-    // Format the base context for the LLM
+    // Create a map for easy lookup
+    const topicPerformanceMap = new Map(
+      allTopicPerformances.map((p) => [p.topicId, p])
+    );
+
+    // Enhanced topic analysis with ALL topics
+    const completeTopicAnalysis = allTopicsForExam.map((topic) => {
+      const performance = topicPerformanceMap.get(topic.id);
+      const examWeightage = parseFloat(topic.examWeightage as any);
+      const userPracticeShare =
+        totalQuestionsPracticed > 0
+          ? ((performance?.totalAttempted || 0) / totalQuestionsPracticed) * 100
+          : 0;
+
+      return {
+        topic_id: topic.id,
+        topic_name: topic.name,
+        exam_weightage: examWeightage,
+        user_accuracy: performance
+          ? parseFloat(performance.accuracyPercent.toString())
+          : 0,
+        questions_attempted: performance?.totalAttempted || 0,
+        user_practice_share: userPracticeShare,
+        is_conceptually_weak: performance
+          ? performance.accuracyPercent.lessThan(50)
+          : true,
+        is_under_practiced:
+          userPracticeShare < examWeightage * 0.5 && examWeightage > 2,
+        has_study_material: !!topic.studyMaterialLink,
+        priority_score: calculateTopicPriority(
+          examWeightage,
+          performance?.accuracyPercent || new Decimal(0),
+          userPracticeShare
+        ),
+      };
+    });
+
+    // Sort by priority for LLM guidance
+    completeTopicAnalysis.sort((a, b) => b.priority_score - a.priority_score);
+
+    // --- PHASE 4: ENHANCED CONTEXT SYNTHESIS FOR LLM ---
     const userContext: any = {
       performance_summary: {
-        overall_accuracy: `${userSummary.overallAccuracyPercent}%`,
-        proficiency_level: userSummary.overallAccuracyPercent.greaterThan(75)
+        overall_accuracy: `${overallAccuracyPercent.toFixed(2)}%`,
+        proficiency_level: overallAccuracyPercent.greaterThan(75)
           ? "Advanced"
-          : userSummary.overallAccuracyPercent.greaterThan(50)
+          : overallAccuracyPercent.greaterThan(50)
           ? "Intermediate"
           : "Beginner",
         is_top_performer: isTopPerformer,
+        total_tests_completed: allCompletedTests.length,
+        mock_tests_completed: mockTestCount,
       },
-      top_weaknesses: weakestSubtopics.map((p) => ({
-        subtopic: p.subtopic.name,
-        topic: p.subtopic.topic.name,
+      subject_accuracies: subjectPerformances.map((p) => ({
+        subject: p.subject.name,
         accuracy: `${p.accuracyPercent}%`,
-        study_link: p.subtopic.topic.studyMaterialLink || null, // Pass the link directly
-        is_conceptually_weak: p.accuracyPercent.lessThan(50), // Flag for severe weakness
       })),
-      lagging_topics: laggingTopics,
+      complete_topic_analysis: completeTopicAnalysis,
+      topic_statistics: {
+        total_topics: allTopicsForExam.length,
+        topics_attempted: allTopicPerformances.length,
+        topics_not_attempted:
+          allTopicsForExam.length - allTopicPerformances.length,
+        weakest_topics_count: completeTopicAnalysis.filter(
+          (t) => t.user_accuracy < 50
+        ).length,
+        high_weightage_weak_topics: completeTopicAnalysis.filter(
+          (t) => t.exam_weightage > 8 && t.user_accuracy < 60
+        ).length,
+        under_practiced_important_topics: completeTopicAnalysis.filter(
+          (t) => t.is_under_practiced && t.exam_weightage > 5
+        ).length,
+      },
       past_week_activity: weeklyActivity.map(
         (a) => `${a.testType} test: "${a.testName}"`
       ),
-      previous_recommendations: previousRecommendations.map(
-        (r) => (r.recommendation as any).title
-      ),
+      previous_recommendations: previousRecommendations.map((r, index) => ({
+        recommendation: (r.recommendation as any).title,
+        days_ago: index + 1,
+        action_type: (r.recommendation as any).action?.type,
+      })),
       social_context: {
         is_in_study_group: !!studyGroupMembership,
       },
     };
 
-    // Add specialized context ONLY for top performers
-    if (isTopPerformer) {
-      const comparativelyWeakerTopics = [...topicPerformances]
-        .sort((a, b) => a.accuracyPercent.comparedTo(b.accuracyPercent))
-        .slice(0, 3)
-        .map((p) => ({
-          topic:
-            allTopicsForExam.find((t) => t.id === p.topicId)?.name ||
-            "Unknown Topic",
-          accuracy: `${p.accuracyPercent}%`,
-        }));
+    // Enhanced follow-up context
+    const lastRecommendation = previousRecommendations[0]
+      ?.recommendation as any;
+    if (
+      lastRecommendation &&
+      lastRecommendation.action?.type === "RECOMMEND_STUDY"
+    ) {
+      const studiedTopicId = lastRecommendation.action.parameters.topicId;
+      const studiedTopicAnalysis = completeTopicAnalysis.find(
+        (t) => t.topic_id === studiedTopicId
+      );
 
-      const lowWeightageTopics = allTopicsForExam
-        .filter((t) => parseFloat(t.examWeightage as any) < 3)
-        .map((t) => t.name);
+      if (studiedTopicAnalysis) {
+        userContext.follow_up_context = {
+          action_required: "practice_studied_topic",
+          studied_topic_id: studiedTopicId,
+          studied_topic_name: studiedTopicAnalysis.topic_name,
+          target_difficulty:
+            studiedTopicAnalysis.user_accuracy < 60 ? "Medium" : "Hard",
+          studied_topic_weightage: studiedTopicAnalysis.exam_weightage,
+        };
+      }
+    }
+
+    // Enhanced top performer analysis
+    if (isTopPerformer) {
+      const comparativelyWeakerTopics = completeTopicAnalysis
+        .filter((t) => t.questions_attempted > 0)
+        .sort((a, b) => a.user_accuracy - b.user_accuracy)
+        .slice(0, 5);
 
       userContext.top_performer_details = {
-        comparatively_weaker_topics: comparativelyWeakerTopics,
-        low_weightage_topics_for_coverage: lowWeightageTopics,
+        comparatively_weaker_topics: comparativelyWeakerTopics.map((t) => ({
+          topic_id: t.topic_id,
+          topic_name: t.topic_name,
+        })),
+        high_weightage_improvement_areas: completeTopicAnalysis
+          .filter((t) => t.exam_weightage > 5 && t.user_accuracy < 90)
+          .slice(0, 3),
       };
     }
 
-    // --- PHASE 3: ENHANCED LLM PROMPT ---
-
+    // --- PHASE 5: THE ENHANCED MASTER LLM PROMPT ---
     const llmPrompt = `
-      You are an expert AI academic coach. Your goal is to analyze a student's performance data and generate a single, actionable, and prioritized 'Plan for the Day'.
+You are an expert AI academic coach. Your goal is to analyze a student's comprehensive performance data and generate a single, actionable, and prioritized 'Plan for the Day'.
 
-      **Student Context:**
-      ${JSON.stringify(userContext, null, 2)}
+**CRITICAL INSTRUCTION: You MUST select a specific topic_id from the complete_topic_analysis when recommending RECOMMEND_STUDY action. DO NOT make up topic IDs.**
 
-      **Available Actions (Choose ONLY ONE):**
-      - **RECOMMEND_STUDY:** Suggest studying a specific topic. Use this if the user is conceptually weak.
-        - Parameters: { "contentType": "topic", "contentName": "The name of the topic", "details": "A descriptive string.", "studyLink": "The provided URL for the study material" }
-      - **RECOMMEND_TEST:** Suggest a practice test. Use this for practice and reinforcement.
-        - Parameters: { "testType": "drill" | "quiz" | "smart_mock" | "pyq", "details": "A descriptive string." }
-      - **RECOMMEND_CHALLENGE:** For advanced users in a study group.
-        - Parameters: { "details": "e.g., 'You're performing well. Challenge a peer to a quiz on Calculus to sharpen your skills.'" }
-      - **RECOMMEND_JOIN_GROUP:** If the user is not in a study group.
-        - Parameters: { "details": "e.g., 'Consider joining a study group to collaborate and compete with peers.'" }
+**Student Context:**
+${JSON.stringify(userContext, null, 2)}
 
-      **Your Task and Decision Logic (Follow this order):**
-      1.  **PRIORITY 1: ADDRESS CONCEPTUAL GAPS.** Look at the 'top_weaknesses' list. If any item has 'is_conceptually_weak' set to 'true' and a 'study_link' is available, your primary duty is to recommend the 'RECOMMEND_STUDY' action. A user cannot practice what they do not understand. Use the 'topic', 'details', and 'studyLink' from that weakness. This overrides all other recommendations.
-      2.  **PRIORITY 2: CHALLENGE TOP PERFORMERS.** If the user is a 'top_performer' and has no conceptual gaps (Priority 1 was not met), follow the special instructions to assign them a hard drill or a challenge.
-      3.  **PRIORITY 3: GENERAL RECOMMENDATION.** If neither of the above conditions is met, choose the most logical action for an intermediate user (e.g., a drill on a moderate weakness, a mock test, etc.).
-      4.  Do not repeat recommendations from the 'previous_recommendations' list.
-      5.  Respond with a single, valid JSON object in the specified format.
+**Available Actions (Choose ONLY ONE):**
+- **RECOMMEND_STUDY:** Suggest studying a specific topic.
+  - Parameters: { "topicId": [EXACT_ID_FROM_ANALYSIS], "contentName": "[EXACT_TOPIC_NAME]", "details": "Why this topic now" }
 
-      **Special Instructions for Top Performers:**
-      - If 'is_top_performer' is true, the user needs to be challenged, not just remediated.
-      - **PRIORITY 1 (for them): Target Comparative Weaknesses.** The best action is likely a 'RECOMMEND_TEST' of type 'drill'. This drill should focus on their 'comparatively_weaker_topics' and be explicitly set to a 'Hard' or 'Elite' difficulty. Frame this as "perfecting" their skills.
-      - **PRIORITY 2 (for them): Ensure Full Coverage.** If they have recently practiced their weaker topics, a great alternative is a 'drill' on 'low_weightage_topics_for_coverage'. This prevents surprises on the exam.
+- **RECOMMEND_TEST:** Suggest a practice test. This is for AI-generated quizzes or drills.
+  - Parameters: {
+      "testType": "drill" | "quiz",
+      "focus": "A short, user-facing string describing the test's purpose (e.g., 'Practice questions on Quantum Physics').",
+      "topicIds": [Array of 1 to 4 numeric topic_ids from the analysis],
+      "difficultyLevel": "Easy" | "Medium" | "Hard",
+      "questionCount": [A number from 3 to 6],
+      "timeLimitMinutes": [A number, e.g., 5, 10, or 15],
+      "questionTypes": ["An array of strings, e.g., 'conceptual', 'theoretical', 'problem-solving']
+    }
 
-      **JSON Output Format:**
-      {
-        "title": "Your Plan for Today",
-        "rationale": "A brief explanation of why this plan was chosen based on the user's context.",
-        "action": {
-          "type": "ACTION_TYPE_FROM_ABOVE",
-          "parameters": { ... }
-        }
-      }
+- **RECOMMEND_CHALLENGE:** For advanced users in study groups.
+  - Parameters: { "details": "Challenge description with specific topic focus" }
 
-      Please respond with only the JSON object, no additional text.
-    `;
+- **RECOMMEND_JOIN_GROUP:** If user not in study group.
+  - Parameters: { "details": "Benefits of joining for collaborative learning" }
 
-    // --- PHASE 4: EXECUTE LLM CALL AND VALIDATE RESPONSE ---
+**STRICT DECISION LOGIC (Follow this exact priority order):**
+
+1.  **PRIORITY 1: FOLLOW-UP CYCLE (HIGHEST PRIORITY)**
+    - IF 'follow_up_context' exists: You MUST choose 'RECOMMEND_TEST'.
+    - Populate parameters as follows:
+      - "testType": "drill"
+      - "focus": \`Practice: \${userContext.follow_up_context.studied_topic_name}\`
+      - "topicIds": [userContext.follow_up_context.studied_topic_id] (MUST be in an array)
+      - "difficultyLevel": userContext.follow_up_context.target_difficulty
+      - "questionCount": 5
+      - "timeLimitMinutes": 10
+      - "questionTypes": ["conceptual", "problem-solving"]
+    - This overrides ALL other considerations.
+
+2.  **PRIORITY 2: CRITICAL CONCEPTUAL GAPS**
+    - IF Priority 1 not met AND any topic has user_accuracy < 50 AND exam_weightage > 8:
+    - Choose 'RECOMMEND_STUDY' with the EXACT topic_id of the most critical topic.
+
+3.  **PRIORITY 3: HIGH-WEIGHTAGE UNDER-PERFORMANCE**
+    - IF Priorities 1&2 not met AND any topic has exam_weightage > 6 AND user_accuracy < 65:
+    - Choose 'RECOMMEND_STUDY' with EXACT topic_id of highest priority_score topic.
+
+4.  **PRIORITY 4: UNDER-PRACTICED IMPORTANT TOPICS**
+    - IF Priorities 1-3 not met AND any topic has is_under_practiced = true AND exam_weightage > 5:
+    - Choose 'RECOMMEND_STUDY' with EXACT topic_id.
+
+5.  **PRIORITY 5: TOP PERFORMER CHALLENGE**
+    - IF is_top_performer = true AND above priorities not met:
+    - Choose 'RECOMMEND_TEST'.
+    - Populate parameters as follows:
+      - "testType": "quiz"
+      - "focus": "Advanced quiz on weaker topics"
+      - "topicIds": [An array of 1-3 topic_ids from top_performer_details.comparatively_weaker_topics]
+      - "difficultyLevel": "Hard"
+      - "questionCount": 6
+      - "timeLimitMinutes": 10
+      - "questionTypes": ["conceptual", "advanced"]
+    - OR 'RECOMMEND_CHALLENGE' if is_in_study_group = true.
+
+6.  **PRIORITY 6: GENERAL IMPROVEMENT**
+    - If no other priority is met, choose 'RECOMMEND_STUDY' based on the topic with the highest priority_score.
+
+**TOPIC SELECTION RULES (for RECOMMEND_STUDY):**
+- ALWAYS use exact topic_id from complete_topic_analysis.
+- ALWAYS use exact topic_name as provided.
+- Prioritize topics with has_study_material = true.
+
+**ANTI-REPETITION RULES:**
+- DO NOT repeat exact recommendations from previous_recommendations.
+- If last recommendation was RECOMMEND_STUDY, prefer RECOMMEND_TEST (as in Priority 1).
+
+**Response Format (JSON ONLY):**
+{
+  "title": "Focused and specific title",
+  "rationale": "Clear explanation of WHY this topic/action was selected based on data analysis",
+  "action": {
+    "type": "ACTION_TYPE",
+    "parameters": {
+      // Parameters must match the structures defined in "Available Actions"
+    }
+  }
+}
+
+**VALIDATION CHECKLIST:**
+Before responding, verify:
+- [ ] The chosen action strictly follows the PRIORITY LOGIC.
+- [ ] For RECOMMEND_STUDY, the selected topic_id exists in complete_topic_analysis.
+- [ ] For RECOMMEND_TEST, all required parameters (testType, focus, topicIds, difficultyLevel, questionCount, timeLimitMinutes, questionTypes) are included and correctly formatted.
+- [ ] Rationale clearly explains the data-driven decision.
+
+Respond with ONLY the JSON object, no additional text.`;
+
+    // --- PHASE 6: EXECUTE LLM CALL ---
     const result = await model.generateContent(llmPrompt);
-
     const responseContent = result.response.text();
     if (!responseContent) throw new Error("Gemini returned an empty response.");
 
-    // Clean the response to ensure it's valid JSON
     const cleanedResponse = responseContent.trim().replace(/```json|```/g, "");
-    const parsedPlan = JSON.parse(cleanedResponse);
+    let parsedPlan = JSON.parse(cleanedResponse);
+    console.log("[AI Coach] Parsed LLM Plan:", parsedPlan);
 
+    // Enhanced validation
     if (
       !parsedPlan.title ||
       !parsedPlan.rationale ||
@@ -272,16 +473,97 @@ const getDailyPlan = async (req: Request, res: Response) => {
       throw new Error("LLM output is missing required fields.");
     }
 
-    // --- PHASE 5: SAVE RECOMMENDATION AND RESPOND TO USER ---
-    await prisma.dailyRecommendation.create({
+    // Strict validation for RECOMMEND_TEST actions
+    if (parsedPlan.action.type === "RECOMMEND_TEST") {
+      const params = parsedPlan.action.parameters;
+      if (
+        !params.testType ||
+        !params.focus || // <-- Added check for focus
+        !Array.isArray(params.topicIds) ||
+        params.topicIds.length === 0 ||
+        !params.difficultyLevel ||
+        !params.questionCount ||
+        !params.timeLimitMinutes ||
+        !Array.isArray(params.questionTypes)
+      ) {
+        console.error(
+          "LLM generated an invalid RECOMMEND_TEST plan:",
+          parsedPlan
+        );
+        // Fallback strategy: recommend studying the highest priority topic
+        const fallbackTopic = completeTopicAnalysis[0];
+        if (!fallbackTopic) {
+          throw new Error(
+            "No topics available for fallback RECOMMEND_STUDY action."
+          );
+        }
+        parsedPlan = {
+          title: `Let's Focus on ${fallbackTopic.topic_name}`,
+          rationale: `We had trouble generating a specific quiz for you, so let's solidify your understanding in a key area. This topic is important based on its exam weightage and your current performance.`,
+          action: {
+            type: "RECOMMEND_STUDY",
+            parameters: {
+              topicId: fallbackTopic.topic_id,
+              contentName: fallbackTopic.topic_name,
+              details:
+                "Focus on this high-priority topic to build a strong foundation.",
+            },
+          },
+        };
+      }
+    }
+
+    // Strict validation for RECOMMEND_STUDY actions
+    if (parsedPlan.action.type === "RECOMMEND_STUDY") {
+      const selectedTopicId = parsedPlan.action.parameters.topicId;
+      const validTopic = completeTopicAnalysis.find(
+        (t) => t.topic_id === selectedTopicId
+      );
+
+      if (!validTopic) {
+        throw new Error(
+          `LLM selected invalid topic_id: ${selectedTopicId}. Must be from complete_topic_analysis.`
+        );
+      }
+
+      // Ensure parameters are correct
+      parsedPlan.action.parameters.contentName = validTopic.topic_name;
+
+      // Always add studyLink (string or null)
+      const topicDetail = allTopicsForExam.find(
+        (t) => t.id === selectedTopicId
+      );
+      parsedPlan.action.parameters.studyLink =
+        topicDetail?.studyMaterialLink ?? null;
+    }
+
+    // --- PHASE 7: SAVE RECOMMENDATION AND RESPOND ---
+    const recommendation = await prisma.dailyRecommendation.create({
       data: {
         userId: uid,
         examId: numericExamId,
-        recommendation: parsedPlan, // Save the entire JSON object from the AI
+        recommendation: parsedPlan,
       },
     });
 
-    res.status(200).json({ success: true, data: parsedPlan });
+    // Add top-level studyLink if RECOMMEND_STUDY
+    let responseData = parsedPlan;
+    if (parsedPlan.action?.type === "RECOMMEND_STUDY") {
+      responseData = {
+        ...parsedPlan,
+        studyLink: parsedPlan.action.parameters.studyLink ?? null,
+        recommendedId: recommendation.id,
+        status: recommendation.status,
+      };
+    } else {
+      responseData = {
+        ...parsedPlan,
+        recommendedId: recommendation.id,
+        status: recommendation.status,
+      };
+    }
+
+    res.status(200).json({ success: true, data: responseData });
   } catch (error) {
     console.error("Error generating daily plan:", error);
     res.status(500).json({
@@ -290,6 +572,40 @@ const getDailyPlan = async (req: Request, res: Response) => {
         "An internal server error occurred while generating your daily plan.",
     });
   }
+};
+
+// Helper function to calculate topic priority score
+const calculateTopicPriority = (
+  examWeightage: number,
+  accuracyPercent: Decimal,
+  userPracticeShare: number
+): number => {
+  const accuracy = parseFloat(accuracyPercent.toString());
+  const weightage = examWeightage || 0;
+
+  // Higher score = higher priority
+  let score = 0;
+
+  // Weightage contribution (0-40 points)
+  score += Math.min(weightage * 4, 40);
+
+  // Accuracy gap contribution (0-30 points) - lower accuracy = higher priority
+  if (accuracy < 100) {
+    score += Math.max(0, (100 - accuracy) * 0.3);
+  }
+
+  // Practice gap contribution (0-20 points)
+  const expectedPracticeShare = weightage;
+  if (userPracticeShare < expectedPracticeShare) {
+    score += Math.min((expectedPracticeShare - userPracticeShare) * 2, 20);
+  }
+
+  // Critical weakness bonus (0-10 points)
+  if (accuracy < 50 && weightage > 5) {
+    score += 10;
+  }
+
+  return Math.round(score);
 };
 
 export { getDailyPlan };

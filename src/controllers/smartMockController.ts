@@ -303,7 +303,7 @@ export const createSmartMockTest = async (req: Request, res: Response) => {
     }
 
     const topicsSortedByWeightage = [...topicsWithWeightage].sort((a, b) => {
-      if (!a.examWeightage) return 1
+      if (!a.examWeightage) return 1;
       if (!b.examWeightage) return -1;
       return b.examWeightage.comparedTo(a.examWeightage);
     });
