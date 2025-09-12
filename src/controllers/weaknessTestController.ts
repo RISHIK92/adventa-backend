@@ -944,6 +944,11 @@ const submitWeaknessTest = async (req: Request, res: Response) => {
     void updateGlobalSubtopicAverages(subtopicIds);
     void updateUserOverallAverage(uid);
     void updateGlobalSubjectAverages(subjectIds);
+    void updateDailyPerformanceAndStreak(uid, {
+      totalAttempted: totalAttempted,
+      totalCorrect: totalCorrect,
+      timeTakenSec: Math.round(totalTimeTakenSec),
+    });
 
     // --- PHASE 7: RESPOND TO USER ---
     const accuracyPercent =
@@ -1457,6 +1462,7 @@ import {
   updateGlobalSubtopicAverages,
   updateUserOverallAverage,
   updateGlobalSubjectAverages,
+  updateDailyPerformanceAndStreak,
 } from "../utils/globalStatsUpdater.js";
 
 // ROUTE 9: NEW - GET /weakness/results/:testInstanceId/summary

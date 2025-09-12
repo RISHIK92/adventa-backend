@@ -18,6 +18,7 @@ import {
   getGroupMembersForSelection,
   getGroupMockTestResults,
   getGroupTestInstanceDetails,
+  getLiveLeaderboard,
   getScheduledGroupTests,
   promoteToAdmin,
   removeMember,
@@ -79,6 +80,12 @@ router.delete(
 router.post("/:studyRoomId/invite", verifyFirebaseToken, inviteMember);
 
 router.get("/:studyRoomId/members", verifyFirebaseToken, getGroupMembers);
+
+router.get(
+  "/:studyRoomId/leaderboard",
+  verifyFirebaseToken,
+  getLiveLeaderboard
+);
 
 router.patch("/:studyRoomId/privacy", verifyFirebaseToken, updateGroupPrivacy);
 

@@ -7,6 +7,7 @@ import {
   updateGlobalTopicAverages,
   updateUserOverallAverage,
   updateGlobalSubjectAverages,
+  updateDailyPerformanceAndStreak,
 } from "../utils/globalStatsUpdater.js";
 
 /**
@@ -770,6 +771,11 @@ const submitCustomQuiz = async (req: Request, res: Response) => {
     void updateGlobalSubtopicAverages(subtopicIds);
     void updateUserOverallAverage(uid);
     void updateGlobalSubjectAverages(subjectIds);
+    void updateDailyPerformanceAndStreak(uid, {
+      totalAttempted: totalAttempted,
+      totalCorrect: totalCorrect,
+      timeTakenSec: Math.round(totalTimeTakenSec),
+    });
 
     // --- PHASE 6: RESPOND TO USER ---
     const accuracyPercent =

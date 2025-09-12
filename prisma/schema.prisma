@@ -21,10 +21,12 @@ model User {
   score                  Decimal?                  @default(0.0) @db.Decimal(10, 2)
   overallAverageAccuracy Decimal?                  @default(0.00) @db.Decimal(5, 2)
   createdAt              DateTime                  @default(now())
+  streak                 Int?                      @default(0)
 
   primaryExam                Exam?                       @relation(fields: [primaryExamId], references: [id])
   subtopicPerformance        UserSubtopicPerformance[]
   examSummaries              UserExamOverallSummary[]
+  dailySnapshots             UserDailyPerformanceSnapshot[]
   testInstances              UserTestInstanceSummary[]
   UserTestAnswer             UserTestAnswer[]
   UserTopicPerformance       UserTopicPerformance[]
@@ -47,6 +49,8 @@ model User {
   memberStats                UserGroupStats[]
   challengeAnswers ChallengeAnswer[]
   dailyRecommendations DailyRecommendation[]
+  scheduleProfiles       UserScheduleProfile[]
+  scheduledSessions      ScheduledSession[]
 }
 
 model Exam {
@@ -66,6 +70,7 @@ model Exam {
   examSummaries UserExamOverallSummary[]
   StudyRoom     StudyRoom[]
   dailyRecommendations DailyRecommendation[]
+  scheduleProfiles        UserScheduleProfile[]
 }
 
 model ExamSession {
@@ -298,6 +303,17 @@ model UserExamOverallSummary {
   exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
 
   @@id([userId, examId])
+}
+
+model UserDailyPerformanceSnapshot {
+  id                  String   @id @default(uuid())
+  userId              String
+  date                DateTime @db.Date
+  accuracyPercent     Decimal  @db.Decimal(5, 2)
+  questionsAttempted  Int
+  timeSpentSec        Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, date])
 }
 
 model UserTestInstanceSummary {
@@ -663,7 +679,100 @@ model DailyRecommendation {
   @@index([generatedTestInstanceId])
 }
 
+model UserScheduleProfile {
+  id                  String           @id @default(uuid())
+  userId              String
+  examId              Int
+
+  dailyAvailableHours Json // e.g., [3, 3, 3, 3, 3, 5, 5] for Mon-Sun
+  coachingStartTime   String           @default("09:00") // Stored as "HH:mm"
+  coachingEndTime     String           @default("17:00") // Stored as "HH:mm"
+
+  // User's context and goals
+  examDate            DateTime?
+  currentLevel        SchedulePersona  @default(NEW)
+  studyStyle          StudyStyle       @default(CONCEPT_FIRST)
+  subjectConfidence   Json // e.g., {"physics": 2, "chemistry": 3, "mathematics": 1}
+  customGoals         String?          // Freeform text for custom goals
+
+  // Test preferences
+  preferredMockDay    DayOfWeek        @default(SATURDAY)
+  weaknessTestDay     DayOfWeek?       // Optional day for a weakness test
+
+  // Relations and timestamps
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam                Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([userId, examId]) // A user has one schedule profile per exam
+}
+
+model ScheduledSession {
+  id              String         @id @default(uuid())
+  userId          String
+  
+  date            DateTime       @db.Date // The specific day of the session
+  startTime       String         // "HH:mm" format, e.g., "08:00"
+  durationMinutes Int            // e.g., 60 for a 1-hour session
+
+  // Content of the session
+  subject         String
+  topic           String
+  method          StudyMethod
+  priority        PriorityLevel
+  
+  // Status tracking
+  status          SessionStatus  @default(PENDING)
+
+  // Relations and timestamps
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
+
+  @@index([userId, date])
+}
+
 // --- ENUMS ---
+
+enum SchedulePersona {
+  NEW
+  MID
+  STRONG
+}
+
+enum StudyStyle {
+  TESTS_FIRST
+  CONCEPT_FIRST
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum StudyMethod {
+  THEORY
+  PRACTICE
+  REVISION
+}
+
+enum PriorityLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum SessionStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+}
+
 enum ScheduledTestStatus {
   SCHEDULED
   LIVE

@@ -11,6 +11,7 @@ import {
   updateGlobalSubtopicAverages,
   updateUserOverallAverage,
   updateGlobalSubjectAverages,
+  updateDailyPerformanceAndStreak,
 } from "../utils/globalStatsUpdater.js";
 
 /**
@@ -1038,6 +1039,13 @@ const submitPyqTest = async (req: Request, res: Response) => {
       if (subjectIds.length > 0) {
         // Assuming this utility function exists
         updateGlobalSubjectAverages(subjectIds).catch(console.error);
+      }
+      if (subjectIds.length > 0) {
+        void updateDailyPerformanceAndStreak(uid, {
+          totalAttempted: totalAttempted,
+          totalCorrect: totalCorrect,
+          timeTakenSec: Math.round(totalTimeTakenSec),
+        });
       }
     });
 

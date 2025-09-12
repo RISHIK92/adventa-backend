@@ -7,6 +7,7 @@ import {
   updateGlobalTopicAverages,
   updateUserOverallAverage,
   updateGlobalSubjectAverages,
+  updateDailyPerformanceAndStreak,
 } from "../utils/globalStatsUpdater.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -424,8 +425,6 @@ const generateDrill = async (req: Request, res: Response) => {
         .status(400)
         .json({ error: "Time limit must be between 1 and 360 minutes." });
     }
-
-    console.log(recommendedId, "recommendedId");
 
     // --- 2. Build Prisma Query ---
     const whereClause: Prisma.QuestionWhereInput = {
@@ -1049,6 +1048,11 @@ const submitDrill = async (req: Request, res: Response) => {
     void updateGlobalSubtopicAverages(subtopicIds);
     void updateUserOverallAverage(uid);
     void updateGlobalSubjectAverages(subjectIds);
+    void updateDailyPerformanceAndStreak(uid, {
+      totalAttempted: totalAttempted,
+      totalCorrect: totalCorrect,
+      timeTakenSec: Math.round(totalTimeTakenSec),
+    });
 
     const accuracyPercent =
       totalAttempted > 0 ? (totalCorrect / totalAttempted) * 100 : 0;

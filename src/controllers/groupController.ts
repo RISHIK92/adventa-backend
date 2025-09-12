@@ -8,6 +8,7 @@ import {
   updateGlobalSubtopicAverages,
   updateGlobalSubjectAverages,
   updateUserOverallAverage,
+  updateDailyPerformanceAndStreak,
 } from "../utils/globalStatsUpdater.js";
 import { nanoid } from "nanoid";
 
@@ -1513,6 +1514,11 @@ const submitScheduledTest = async (req: Request, res: Response) => {
     updateUserOverallAverage(uid).catch((err) =>
       console.error("BG task failed: updateUserOverallAverage", err)
     );
+    void updateDailyPerformanceAndStreak(uid, {
+      totalAttempted: numAttempted,
+      totalCorrect: numCorrect,
+      timeTakenSec: Math.round(totalTimeTakenSec),
+    });
 
     res.json({
       success: true,
@@ -1906,6 +1912,7 @@ export {
   demoteAdmin,
   removeMember,
   getGroupMembers,
+  getLiveLeaderboard,
   updateGroupPrivacy,
   getMockTest,
   createScheduledGroupTest,
