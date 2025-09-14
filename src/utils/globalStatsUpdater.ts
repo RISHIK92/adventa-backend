@@ -194,8 +194,8 @@ export const updateDailyPerformanceAndStreak = async (
           currentStreak = 1;
           // Loop through the rest of the snapshots to find consecutive days
           for (let i = 0; i < allSnapshots.length - 1; i++) {
-            const currentSnapDate = new Date(allSnapshots[i].date);
-            const nextSnapDate = new Date(allSnapshots[i + 1].date);
+            const currentSnapDate = new Date(allSnapshots[i]!.date);
+            const nextSnapDate = new Date(allSnapshots[i + 1]!.date);
 
             const diffBetweenSnaps =
               currentSnapDate.getTime() - nextSnapDate.getTime();

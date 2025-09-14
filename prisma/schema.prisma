@@ -126,6 +126,7 @@ model Topic {
   subtopics         Subtopic[]
   TestTopicSnapshot TestTopicSnapshot[]
   challenges        Challenge[]
+  scheduledSessions ScheduledSession[]
 
   @@unique([subjectId, name])
   @@index([subjectId])
@@ -711,25 +712,23 @@ model UserScheduleProfile {
 model ScheduledSession {
   id              String         @id @default(uuid())
   userId          String
-  
-  date            DateTime       @db.Date // The specific day of the session
-  startTime       String         // "HH:mm" format, e.g., "08:00"
-  durationMinutes Int            // e.g., 60 for a 1-hour session
+  topicId         Int
 
-  // Content of the session
-  subject         String
-  topic           String
+  date            DateTime       @db.Date
+  startTime       String
+  durationMinutes Int
+
   method          StudyMethod
   priority        PriorityLevel
   
-  // Status tracking
   status          SessionStatus  @default(PENDING)
 
-  // Relations and timestamps
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic           Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
   createdAt       DateTime       @default(now())
 
   @@index([userId, date])
+  @@index([topicId])
 }
 
 // --- ENUMS ---
