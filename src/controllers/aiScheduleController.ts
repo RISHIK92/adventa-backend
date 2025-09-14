@@ -238,11 +238,13 @@ export const getMonthlySchedule = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user;
     const validation = getScheduleSchema.safeParse(req.query);
+
     if (!validation.success) {
       return res
         .status(400)
         .json({ success: false, error: validation.error.flatten() });
     }
+
     const { year, month } = validation.data;
 
     const startDate = new Date(Date.UTC(year, month - 1, 1));

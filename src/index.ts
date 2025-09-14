@@ -9,6 +9,7 @@ import groupRouter from "./routes/groupRoutes.js";
 import aiPipelineRouter from "./routes/aiPipelineRoutes.js";
 import drillRouter from "./routes/drillRoutes.js";
 import userDataRouter from "./routes/userDataRoutes.js";
+import aiScheduleRouter from "./routes/aiScheduleRoutes.js";
 import cors from "cors";
 
 const app = express();
@@ -25,6 +26,7 @@ app.use("/study-group", groupRouter);
 app.use("/ai-pipelines", aiPipelineRouter);
 app.use("/drill", drillRouter);
 app.use("/user", userDataRouter);
+app.use("/schedule", aiScheduleRouter);
 
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");
