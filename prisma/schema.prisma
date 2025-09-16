@@ -338,6 +338,8 @@ model UserTestInstanceSummary {
 
   generatedQuestionIds   Json?
 
+  scheduledSessionId   String? @unique
+
   exam             Exam?                       @relation(fields: [examId], references: [id])
   user             User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   answers          UserTestAnswer[]
@@ -348,6 +350,8 @@ model UserTestInstanceSummary {
 
   challengeParticipant ChallengeParticipant?
   scheduledGroupTest   ScheduledGroupTest?   @relation(fields: [scheduledGroupTestId], references: [id])
+
+  scheduledSession     ScheduledSession? @relation(fields: [scheduledSessionId], references: [id])
 
   @@index([userId, completedAt(sort: Desc)])
   @@index([userId, examId, testType, completedAt(sort: Desc)])
@@ -712,7 +716,8 @@ model UserScheduleProfile {
 model ScheduledSession {
   id              String         @id @default(uuid())
   userId          String
-  topicId         Int
+  topicId         Int?
+  sessionTitle    String?
 
   date            DateTime       @db.Date
   startTime       String
@@ -720,12 +725,18 @@ model ScheduledSession {
 
   method          StudyMethod
   priority        PriorityLevel
+
+  questionCount   Int?
+  timeLimitMinutes Int?
+  difficultyLevel DifficultyLevel?
   
   status          SessionStatus  @default(PENDING)
 
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  topic           Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topic           Topic?          @relation(fields: [topicId], references: [id], onDelete: Cascade)
   createdAt       DateTime       @default(now())
+
+  generatedTestInstance UserTestInstanceSummary?
 
   @@index([userId, date])
   @@index([topicId])
@@ -755,9 +766,15 @@ enum DayOfWeek {
 }
 
 enum StudyMethod {
+  MOCK_TEST
+  DRILL_HARD
+  DRILL_MEDIUM
+  DRILL_EASY
+  WEAKNESS_TEST
+  CONCEPT_QUIZ
+  REVISION
   THEORY
   PRACTICE
-  REVISION
 }
 
 enum PriorityLevel {

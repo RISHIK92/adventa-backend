@@ -42,6 +42,7 @@ const generateQuiz = async (req: Request, res: Response) => {
       timeLimitMinutes,
       questionTypes, // Expecting an array like ['theoretical', 'conceptual']
       recommendedId,
+      scheduledSessionId,
     } = req.body;
 
     // Rigorous validation for the new constraints
@@ -64,10 +65,10 @@ const generateQuiz = async (req: Request, res: Response) => {
         .status(400)
         .json({ error: "Please provide 1 to 4 topic IDs." });
     }
-    if (questionCount < 1 || questionCount > 6) {
+    if (questionCount < 1 || questionCount > 15) {
       return res
         .status(400)
-        .json({ error: "Question count must be between 1 and 6." });
+        .json({ error: "Question count must be between 1 and 15." });
     }
     if (!Array.isArray(questionTypes) || questionTypes.length === 0) {
       return res
@@ -155,7 +156,7 @@ const generateQuiz = async (req: Request, res: Response) => {
     try {
       // Get the generative model
       const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
+        model: "gemini-2.0-flash",
         generationConfig: {
           temperature: 0.7,
           topK: 40,
@@ -252,6 +253,7 @@ const generateQuiz = async (req: Request, res: Response) => {
           examId: Number(examId), // Ensure number
           testName: `AI Quiz: ${topicNames}`,
           testType: "quiz",
+          scheduledSessionId: scheduledSessionId,
           score: 0,
           totalMarks: questionCount * 1, // Assuming 1 mark per question
           totalQuestions: questionCount,
@@ -405,12 +407,13 @@ const generateDrill = async (req: Request, res: Response) => {
       questionCount,
       timeLimitMinutes,
       recommendedId,
+      scheduledSessionId,
     } = req.body;
 
-    if (!examId || !questionCount || !timeLimitMinutes || !recommendedId) {
+    if (!examId || !questionCount || !timeLimitMinutes) {
       return res.status(400).json({
         error:
-          "Missing required fields: examId, questionCount, timeLimitMinutes and recommendedId are required.",
+          "Missing required fields: examId, questionCount and timeLimitMinutes are required.",
       });
     }
 
@@ -496,6 +499,7 @@ const generateDrill = async (req: Request, res: Response) => {
           examId: Number(examId),
           testName: testName,
           testType: "drill",
+          scheduledSessionId: scheduledSessionId,
           score: 0,
           totalMarks: Number(questionCount) * 1,
           totalQuestions: Number(questionCount),
@@ -686,7 +690,14 @@ const submitDrill = async (req: Request, res: Response) => {
 
     const testInstance = await prisma.userTestInstanceSummary.findUnique({
       where: { id: testInstanceId, userId: uid },
-      include: { exam: true },
+      select: {
+        id: true,
+        completedAt: true,
+        scheduledSessionId: true,
+        exam: true,
+        totalQuestions: true,
+        totalMarks: true,
+      },
     });
 
     if (!testInstance || !testInstance.exam) {
@@ -1031,6 +1042,15 @@ const submitDrill = async (req: Request, res: Response) => {
         },
       })
     );
+
+    if (testInstance.scheduledSessionId) {
+      transactionPromises.push(
+        prisma.scheduledSession.update({
+          where: { id: testInstance.scheduledSessionId },
+          data: { status: "COMPLETED" },
+        })
+      );
+    }
 
     await prisma.$transaction(transactionPromises);
     await prisma.dailyRecommendation.updateMany({
