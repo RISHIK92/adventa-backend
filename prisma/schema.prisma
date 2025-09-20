@@ -742,7 +742,29 @@ model ScheduledSession {
   @@index([topicId])
 }
 
+model VideoGenerationJob {
+  id              String   @id @default(uuid())
+  questionId      Int
+  status          JobStatus @default(PENDING)
+  manimCode       String?   @db.Text
+  description     String?   @db.Text
+  videoUrl        String?
+  errorMessage    String?   @db.Text
+  retryCount      Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+}
 // --- ENUMS ---
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 
 enum SchedulePersona {
   NEW

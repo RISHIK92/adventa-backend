@@ -27,6 +27,7 @@
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.13.0",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.58.7",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "firebase-admin": "^13.4.0",
