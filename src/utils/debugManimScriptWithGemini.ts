@@ -7,7 +7,7 @@ if (!geminiApiKey) {
   throw new Error("GEMINI_API_KEY is not set in the environment variables.");
 }
 const genAI = new GoogleGenerativeAI(geminiApiKey);
-const geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 /**
  * Attempts to debug a failed Manim script using the Gemini AI model.

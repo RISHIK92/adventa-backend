@@ -1,7 +1,6 @@
-import { PrismaClient, DifficultyLevel } from "@prisma/client";
 import type { JsonValue } from "@prisma/client/runtime/library";
-
-const prisma = new PrismaClient();
+import { DifficultyLevel } from "@prisma/client";
+import { prisma } from "../services/db.js";
 
 export interface QuestionDetails {
   questionText: string;

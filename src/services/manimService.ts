@@ -34,7 +34,7 @@ export const Manim = {
         workDir,
       ];
 
-      execFile(command, args, (error, stdout, stderr) => {
+      execFile(command, args, (error, stdout, stderr: any) => {
         if (error) {
           return reject(
             new ManimRenderError("Manim rendering failed.", stderr)
