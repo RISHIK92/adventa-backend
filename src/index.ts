@@ -20,7 +20,7 @@ app.use(cors());
 
 app.use(express.json());
 
-const youtubeService = new YouTubeUploadService();
+const youtubeService = await YouTubeUploadService.create();
 
 // Route 1: To start the authentication
 app.get("/auth/youtube", (req, res) => {

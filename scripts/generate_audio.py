@@ -1,67 +1,73 @@
 import sys
-import pyttsx3
 import os
+import subprocess
 from pathlib import Path
 
 def text_to_speech(text, output_path):
     """
-    Convert text to speech and save as audio file.
-    
+    Convert text to speech using Piper TTS, prioritizing a pre-downloaded model.
+
     Args:
-        text (str): Text to convert to speech
-        output_path (str): Path where audio file should be saved
+        text (str): Text to convert to speech.
+        output_path (str): Path where the audio file should be saved.
     """
     try:
-        # Ensure output directory exists
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        
-        # Initialize TTS engine
-        engine = pyttsx3.init()
-        
-        # Configure engine properties for better quality
-        engine.setProperty('rate', 150)  # Speed of speech (words per minute)
-        engine.setProperty('volume', 0.9)  # Volume level (0.0 to 1.0)
-        
-        # Get available voices and set a clear one if possible
-        voices = engine.getProperty('voices')
-        if voices:
-            # Try to find an English voice
-            for voice in voices:
-                if 'english' in voice.name.lower() or 'en_' in voice.id.lower():
-                    engine.setProperty('voice', voice.id)
-                    break
-        
-        # Convert output path to WAV first (pyttsx3 works better with WAV)
-        wav_path = output_path.replace('.mp3', '.wav')
-        
-        # Save to file
-        engine.save_to_file(text, wav_path)
-        engine.runAndWait()
-        
-        # Convert WAV to MP3 using ffmpeg if needed
-        if output_path.endswith('.mp3') and wav_path != output_path:
-            import subprocess
+        # --- Piper TTS Configuration (using amy-medium) ---
+        model_name = "en_US-amy-medium"
+        # Absolute path for the models directory, consistent with the Dockerfile
+        models_dir = Path("/home/manim/piper_models")
+        model_path = models_dir / f"{model_name}.onnx"
+        model_config_path = models_dir / f"{model_name}.onnx.json"
+
+        # --- Check for Model (with fallback download) ---
+        if not model_path.is_file() or not model_config_path.is_file():
+            print(f"Warning: Pre-downloaded model '{model_name}' not found. Attempting to download...")
+            os.makedirs(models_dir, exist_ok=True)
+            
+            onnx_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/{model_name}.onnx"
+            json_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/{model_name}.onnx.json"
+
             try:
-                subprocess.run([
-                    'ffmpeg', '-y', '-i', wav_path, 
-                    '-acodec', 'libmp3lame', '-b:a', '128k',
-                    output_path
-                ], check=True, capture_output=True)
-                
-                # Remove the temporary WAV file
-                os.remove(wav_path)
-                print(f"Successfully generated audio at {output_path}")
+                subprocess.run(["curl", "--fail", "-L", "-o", str(model_path), onnx_url], check=True)
+                subprocess.run(["curl", "--fail", "-L", "-o", str(model_config_path), json_url], check=True)
+                print("Model downloaded successfully.")
             except subprocess.CalledProcessError as e:
-                print(f"Error converting to MP3: {e}", file=sys.stderr)
-                # Keep the WAV file if MP3 conversion fails
-                print(f"Audio saved as WAV at {wav_path}")
+                print(f"FATAL: Could not download the model. Error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        # --- Audio Generation ---
+        output_dir = Path(output_path).parent
+        os.makedirs(output_dir, exist_ok=True)
+
+        piper_executable = "piper"
+        wav_path = str(Path(output_path).with_suffix('.wav'))
+        
+        command = [piper_executable, "--model", str(model_path), "--output_file", wav_path]
+
+        print("Running Piper TTS command...")
+        subprocess.run(
+            command, input=text, text=True, capture_output=True, check=True, encoding='utf-8'
+        )
+
+        # --- Convert WAV to MP3 ---
+        if output_path.endswith('.mp3'):
+            print(f"Converting {wav_path} to {output_path}...")
+            ffmpeg_command = [
+                'ffmpeg', '-y', '-i', wav_path, '-acodec', 'libmp3lame',
+                '-b:a', '128k', output_path
+            ]
+            subprocess.run(ffmpeg_command, check=True, capture_output=True)
+            os.remove(wav_path)
+            print(f"Successfully generated audio at {output_path}")
         else:
             print(f"Successfully generated audio at {wav_path}")
-            
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error during audio generation: {e}", file=sys.stderr)
+        print(f"Stderr: {e.stderr.decode('utf-8', errors='ignore')}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"Error generating audio: {e}", file=sys.stderr)
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":
@@ -72,9 +78,8 @@ if __name__ == "__main__":
     text_content = sys.argv[1]
     file_path = sys.argv[2]
     
-    # Validate inputs
     if not text_content.strip():
         print("Error: Text content cannot be empty", file=sys.stderr)
         sys.exit(1)
-    
+        
     text_to_speech(text_content, file_path)

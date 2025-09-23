@@ -12,7 +12,7 @@ import { YouTubeUploadService } from "../services/youtubeUpload.js";
 
 const execPromise = util.promisify(exec);
 const prisma = new PrismaClient();
-const youtubeService = new YouTubeUploadService();
+const youtubeService = await YouTubeUploadService.create();
 
 const connection = {
   host: process.env.REDIS_HOST || "localhost",
@@ -41,23 +41,6 @@ const validateFile = async (
     );
   } catch (error: any) {
     throw new Error(`File validation failed for ${filePath}: ${error.message}`);
-  }
-};
-
-/**
- * Generate thumbnail from video
- */
-const generateThumbnail = async (
-  videoPath: string,
-  thumbnailPath: string
-): Promise<void> => {
-  try {
-    const command = `ffmpeg -y -i "${videoPath}" -ss 00:00:02 -vframes 1 -q:v 2 "${thumbnailPath}"`;
-    await execPromise(command);
-    console.log(`[Thumbnail] Generated: ${thumbnailPath}`);
-  } catch (error: any) {
-    console.warn(`[Thumbnail] Generation failed: ${error.message}`);
-    // Thumbnail is optional, don't throw
   }
 };
 
@@ -208,7 +191,7 @@ const worker = new Worker(
 
           console.log(`[Job ${jobId}] Rendering Manim animation...`);
           const manimOutputDir = path.join(TEMP_DIR, "media");
-          const manimCommand = `manim -qm --media_dir "${manimOutputDir}" "${scriptPath}"`;
+          const manimCommand = `manim -qh --media_dir "${manimOutputDir}" "${scriptPath}"`;
 
           await execWithTimeout(manimCommand, 180000); // 3 minutes
 
@@ -216,7 +199,7 @@ const worker = new Worker(
             manimOutputDir,
             "videos",
             SCENE_NAME,
-            "720p30",
+            "1080p60",
             `${SCENE_NAME}.mp4`
           );
 
@@ -247,17 +230,13 @@ const worker = new Worker(
           await validateFile(finalVideoPath, 50000);
           console.log(`[Job ${jobId}] Media merge complete: ${finalVideoPath}`);
 
-          // --- Step 6: Generate Thumbnail ---
-          const thumbnailPath = path.join(TEMP_DIR, `${jobId}_thumbnail.jpg`);
-          await generateThumbnail(finalVideoPath, thumbnailPath);
-
           let finalUrl: string;
           let videoId: string | null = null;
 
           if (uploadToYouTube) {
             await job.updateProgress({ step: "Uploading to YouTube..." });
 
-            // --- Step 7: Upload to YouTube ---
+            // --- Step 6: Upload to YouTube ---
             try {
               const { title, description, tags } = generateYouTubeMetadata(
                 questionDetails,
@@ -266,17 +245,12 @@ const worker = new Worker(
 
               const youtubeResult = await youtubeService.uploadVideo(
                 finalVideoPath,
-                //@ts-ignore
                 {
                   title: title.substring(0, 100), // YouTube title limit
                   description: description.substring(0, 5000), // YouTube description limit
                   tags: tags.slice(0, 15), // YouTube tags limit
                   categoryId: "27", // Education
-                  privacyStatus: "unlisted", // Safe default
-                  thumbnailPath: await fs
-                    .access(thumbnailPath)
-                    .then(() => thumbnailPath)
-                    .catch(() => undefined),
+                  privacyStatus: "private", // Safe default
                 }
               );
 
@@ -343,13 +317,12 @@ const worker = new Worker(
             finalUrl = finalVideoPath;
           }
 
-          // --- Step 8: Update Job Status ---
+          // --- Step 7: Update Job Status ---
           await prisma.videoGenerationJob.update({
             where: { id: jobId },
             data: {
               status: "COMPLETED",
               videoUrl: finalUrl,
-              //@ts-ignore
               youtubeVideoId: videoId,
               errorMessage: null,
             },

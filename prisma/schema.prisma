@@ -749,6 +749,7 @@ model VideoGenerationJob {
   manimCode       String?   @db.Text
   description     String?   @db.Text
   videoUrl        String?
+  youtubeVideoId  String?
   errorMessage    String?   @db.Text
   retryCount      Int       @default(0)
   createdAt       DateTime  @default(now())
