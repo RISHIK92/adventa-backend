@@ -17,61 +17,46 @@ const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
  */
 const generateManimScriptWithGemini = async (context: QuestionDetails) => {
   console.log(`[Job] Calling Gemini to generate script for question ID...`);
-
   const prompt = `
-    You are a world-class Manim expert and a phenomenal educator. Your mission is to create a flawless, short, and crystal-clear video explanation for a given exam question. You will transform a JSON-based problem description into a complete, ready-to-use educational asset.
+    You are a master visual educator and a world-class Manim expert. Your mission is to create a deeply intuitive and visually engaging video that doesn't just present a solution, but truly explains the underlying concepts. Think of this as a premium educational video, not a quick text-to-video clip.
 
-    You will receive a JSON object containing all the details of an exam question. Your output MUST be a single, valid JSON object, with no other text or markdown formatting before or after it. The output object will contain three keys: "manimCode", "className", and "spokenDescription".
+    You will receive a JSON object with question details. Your output MUST be a single, valid JSON object, with no other text or markdown formatting. The output object will have three keys: "manimCode", "className", and "spokenScript".
 
     **INPUT CONTEXT:**
     \`\`\`json
     ${JSON.stringify(context, null, 2)}
     \`\`\`
 
-    **YOUR TASK: A Step-by-Step Guide to Perfection**
+    **YOUR TASK: A Step-by-Step Guide**
 
-    **1. Deep Analysis of the Input:**
-    *   Thoroughly examine the entire input JSON. Understand the question's core concept, the provided solution's logic, the subject, topic, and difficulty.
-    *   Internalize the step-by-step solution to form the narrative backbone of your explanation.
+    **1. Deeply Analyze and Storyboard a VISUAL Narrative:**
+    *   Go beyond the text. How can you VISUALLY represent the problem? Can you use graphs, shapes, or number lines?
+    *   Your goal is to "show, not just tell." Instead of displaying a wall of text, use Manim's animation capabilities to build the explanation step-by-step.
+    *   The final video should be comprehensive and well-paced. Do not rush. Prioritize clarity and depth over brevity.
 
-    **2. Architect the Visual Explanation (Pre-Coding Blueprint):**
-    *   Before writing any code, storyboard the scene in your mind.
-    *   **Scene Flow:** Plan the sequence:
-        *   Start with a clear title and the question itself.
-        *   Transition smoothly into the first step of the solution.
-        *   Dedicate a clear visual segment for each subsequent step.
-        *   Conclude with a final answer reveal and a quick summary slide.
-    *   **Layout Management:** Plan where elements will appear on screen. Use Manim's layout tools like \`.to_edge()\`, \`.next_to()\`, and \`VGroup().arrange()\` to maintain a clean, organized, and professional look throughout the video.
+    **2. Generate Flawless Manim Code That Teaches Visually:**
+    *   Write a single, clean Python script using the **\`manimcommunity v0.18.0\`** library, with one class inheriting from \`manim.Scene\`.
+    *   **Embrace Visual Tools:**
+        *   **Highlighting:** Use \`SurroundingRectangle\`, color changes (\`.set_color()\`), or \`Indicate()\` to draw the viewer's attention to the part of the equation you are discussing.
+        *   **Relationships:** Use \`Arrow\` and \`Line\` to connect different parts of the problem and show relationships.
+        *   **Transformation:** Use \`Transform\` to show an equation evolving from one step to the next. This is much more powerful than just fading elements in and out.
+        *   **Illustration:** If a variable represents a real-world object, consider using simple shapes (\`Circle\`, \`Square\`) to represent it. If the problem involves functions, use \`Axes\` and \`plot\`.
+    *   **Pacing for Comprehension:** Use frequent and generous \`self.wait(n)\` calls. A longer, well-explained video is better than a short, confusing one. Give the viewer time to absorb each visual step.
 
-    **3. Generate Flawless Manim Code:**
-    *   Write a single, clean, and well-commented Python script using the **\`manimcommunity v0.18.0\`** library.
-    *   The script must contain one, and only one, class that inherits from \`manim.Scene\`.
-    *   **Avoid Visual Clutter:** This is critical. **Do not let animations and text overlap.** Actively manage the scene by fading out, transforming, or clearing previous steps before introducing new ones. For example, use \`self.play(FadeOut(step1_group), FadeIn(step2_title))\` to transition between steps.
-    *   **Use Pedagogical Animations:**
-        *   Employ simple, effective animations: \`Write\` or \`FadeIn\` for new concepts, \`TransformMatchingTex\` for evolving equations, and \`Transform\` for general changes.
-        *   Use highlighting techniques like \`SurroundingRectangle\` or changing the \`color\` of a \`MathTex\` element to draw attention to crucial parts of the solution.
-    *   **Ensure Perfect Pacing:** The explanation must be easy to follow. Add \`self.wait(n)\` calls (e.g., \`self.wait(1)\` or \`self.wait(2)\`) after each significant animation or piece of information is displayed. This gives the viewer a moment to absorb what they've seen before moving on.
+    **3. Generate a Descriptive Spoken Script:**
+    *   The spoken script should narrate the VISUALS on screen. It's a voiceover, not just a transcript of on-screen text.
+    *   **Example:** Instead of a script that says "Now we add 5 to both sides," a better script would be: *"To isolate X, we need to cancel out this minus five. Watch as we introduce a plus five on both sides of the equation to maintain the balance."* This directly references the animation the viewer is seeing.
+    *   The script should be a single, cohesive string.
 
-    **4. Write a Professional Spoken Description:**
-    *   Compose a concise, conversational, and encouraging script for a text-to-speech engine.
-    *   **Crucial Requirement: Perfect Synchronization.** Every sentence or phrase in your description must directly correspond to an animation in your Manim code. Write the script as if you are narrating the \`self.play()\` calls in your \`construct\` method one by one.
-    *   **Structure:**
-        *   **Introduction:** Briefly introduce the problem. ("In this video, we'll tackle a problem about...")
-        *   **Step-by-Step Narration:** Explain each step as it appears visually. ("First, we need to find the velocity. We do this by taking the derivative of the position vector...")
-        *   **Conclusion:** State the final answer clearly and provide a brief recap of the method. ("And there we have it! The magnitude is... To recap, we simply...")
-
-    **5. Final Output Assembly:**
+    **4. Final Output Assembly:**
     *   Package your work into a single JSON object.
-    *   The \`manimCode\` key must contain the complete, runnable Python script as a single string.
-    *   The \`className\` key must contain the name of the Manim Scene class you created.
-    *   The \`spokenDescription\` key must contain the complete, synchronized narration script.
 
-    **OUTPUT FORMAT (Strictly adhere to this JSON structure):**
+    **OUTPUT FORMAT (Strictly adhere to this JSON structure, noting the more descriptive script and advanced code):**
     \`\`\`json
     {
-      "manimCode": "from manim import *\\\\n\\\\nclass YourSceneName(Scene):\\\\n    def construct(self):\\\\n        # ... your clean, well-paced, and perfectly managed manim code here",
-      "className": "YourSceneName",
-      "spokenDescription": "In this video, we'll solve a problem about... First, let's look at the question. As you can see on the screen, the first step is to... Now that we have that, we'll move to the next step..."
+      "manimCode": "from manim import *\\n\\nclass AdvancedLinearScene(Scene):\\n    def construct(self):\\n        # ... comprehensive, well-paced manim code ...\\n        equation = MathTex(\\\"2x - 5 = 11\\\").scale(1.5)\\n        self.play(Write(equation))\\n        self.wait(2)\\n\\n        # Highlight the '-5' term\\n        highlight_box = SurroundingRectangle(equation.get_part_by_tex(\\\"-5\\\"))\\n        self.play(Create(highlight_box))\\n        self.wait(1.5)\\n\\n        # Show adding 5 to both sides\\n        new_equation = MathTex(\\\"2x - 5 + 5 = 11 + 5\\\").scale(1.5)\\n        self.play(Transform(equation, new_equation), FadeOut(highlight_box))\\n        self.wait(3)",
+      "className": "AdvancedLinearScene",
+      "spokenScript": "We begin with the equation 2x minus 5 equals 11. Our goal is to solve for x. First, let's focus on this minus 5 term. To isolate the variable, we need to cancel it out by adding 5 to both sides of the equation. Watch how the equation transforms as we do this, resulting in 2x equals 16."
     }
     \`\`\`
     `;
@@ -92,16 +77,15 @@ const generateManimScriptWithGemini = async (context: QuestionDetails) => {
     if (
       !parsedResponse.manimCode ||
       !parsedResponse.className ||
-      !parsedResponse.spokenDescription
+      !parsedResponse.spokenScript
     ) {
       throw new Error("Parsed JSON response is missing required keys.");
     }
 
-    // Map the keys to match the worker's expectations
     return {
       manimCode: parsedResponse.manimCode,
       className: parsedResponse.className,
-      description: parsedResponse.spokenDescription,
+      description: parsedResponse.spokenScript.trim(),
     };
   } catch (error) {
     console.error("[Job] Error calling or parsing Gemini API response:", error);

@@ -14,41 +14,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python packages
+# Install python packages (REMOVED moviepy)
 RUN python3 -m pip install --upgrade pip \
     && python3 -m pip install --no-cache-dir piper-tts
 
-# --- PRE-DOWNLOAD AND VERIFY PIPER VOICE MODEL (amy-medium) ---
-
-# Define the target directory
+# --- PRE-DOWNLOAD AND VERIFY PIPER VOICE MODEL ---
+# This section is no longer strictly necessary but doesn't hurt to keep
+# in case you want to switch back or use TTS for another purpose.
 ARG MODELS_DIR=/home/manim/piper_models
-
-# Step 1: Create the directory for the models
 RUN mkdir -p ${MODELS_DIR}
-
-# Step 2: Download the ONNX model file from the path you discovered.
 RUN curl --fail --location --output ${MODELS_DIR}/en_US-amy-medium.onnx \
      "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx"
-
-# Step 3: Download the JSON config file from the same location.
-RUN curl --fail --location --output ${MODELS_DIR}/en_US-amy-medium.onnx.json \
+RUN curl --fail --location --output ${MODORES_DIR}/en_US-amy-medium.onnx.json \
      "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json"
-
-# Step 4: VERIFY the downloads. This will fail the build if files are missing or empty.
-RUN ls -lh ${MODELS_DIR} \
-    && find ${MODELS_DIR} -type f -size -1k -exec echo "Error: Found suspiciously small file" {} + -exec exit 1 \; \
-    && echo "Model files downloaded and verified successfully."
+RUN ls -lh ${MODELS_DIR} && echo "Model files downloaded."
 
 # --- USER AND PERMISSIONS SETUP ---
-
-# Create the non-root user
 RUN useradd -ms /bin/bash manim
-
-# Change ownership of the models and home directory to the new user
-RUN chown -R manim:manim ${MODELS_DIR} \
-    && chown -R manim:manim /home/manim
-
-# Switch to the non-root user
+RUN chown -R manim:manim ${MODELS_DIR} && chown -R manim:manim /home/manim
 USER manim
 WORKDIR /home/manim/app
 

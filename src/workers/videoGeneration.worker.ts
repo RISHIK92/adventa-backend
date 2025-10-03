@@ -122,10 +122,8 @@ const worker = new Worker(
     const TEMP_DIR = path.join(process.cwd(), "temp", jobId);
 
     console.log(`[Worker] Processing job ${jobId} for question ${questionId}`);
-    console.log(`[Worker] Upload to YouTube: ${uploadToYouTube}`);
 
     try {
-      // Clean setup
       await fs.rm(TEMP_DIR, { recursive: true, force: true });
       await fs.mkdir(TEMP_DIR, { recursive: true });
 
@@ -140,39 +138,36 @@ const worker = new Worker(
       let lastManimCode = "";
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        await job.updateProgress({
-          step: `Attempt ${attempt}/${MAX_RETRIES}`,
-          attempt,
-          max: MAX_RETRIES,
-        });
+        await job.updateProgress({ step: `Attempt ${attempt}/${MAX_RETRIES}` });
 
         try {
-          // --- Step 1: Get Question Details ---
+          // --- Step 1 & 2: Get Details & Generate Script ---
           const questionDetails = await getQuestionDetailsFromMCP(questionId);
+
           if (!questionDetails) {
-            throw new Error(`Question with ID ${questionId} not found`);
+            throw new Error(`Question ID ${questionId} not found in MCP.`);
           }
 
-          // --- Step 2: Generate/Debug Manim Script ---
           let scriptResponse;
           if (attempt === 1) {
-            console.log(`[Job ${jobId}] Generating Manim script...`);
+            console.log(`[Job ${jobId}] Generating initial script...`);
             scriptResponse = await generateManimScriptWithGemini(
               questionDetails
             );
           } else {
-            console.log(`[Job ${jobId}] Debugging failed script...`);
+            console.log(`[Job ${jobId}] Attempting to debug previous error...`);
+            // On a retry, the previous error message and failed code are in the jobRecord
+            const lastError = jobRecord?.errorMessage || "Unknown Manim error";
             scriptResponse = await debugManimScriptWithGemini(
               questionDetails,
               lastManimCode,
-              jobRecord!.errorMessage || "Unknown error"
+              lastError
             );
           }
 
           lastManimCode = scriptResponse.manimCode;
           const SCENE_NAME = scriptResponse.className;
 
-          // Update job record
           jobRecord = await prisma.videoGenerationJob.update({
             where: { id: jobId },
             data: {
@@ -182,19 +177,13 @@ const worker = new Worker(
             },
           });
 
-          await job.updateProgress({ step: "Rendering video animation..." });
-
           // --- Step 3: Render Manim Video ---
-          const scriptFileName = `${SCENE_NAME}.py`;
-          const scriptPath = path.join(TEMP_DIR, scriptFileName);
+          await job.updateProgress({ step: "Rendering video animation..." });
+          const scriptPath = path.join(TEMP_DIR, `${SCENE_NAME}.py`);
           await fs.writeFile(scriptPath, lastManimCode);
-
-          console.log(`[Job ${jobId}] Rendering Manim animation...`);
           const manimOutputDir = path.join(TEMP_DIR, "media");
           const manimCommand = `manim -qh --media_dir "${manimOutputDir}" "${scriptPath}"`;
-
-          await execWithTimeout(manimCommand, 180000); // 3 minutes
-
+          await execWithTimeout(manimCommand, 180000); // 3 mins
           const rawVideoPath = path.join(
             manimOutputDir,
             "videos",
@@ -202,34 +191,46 @@ const worker = new Worker(
             "1080p60",
             `${SCENE_NAME}.mp4`
           );
-
           await validateFile(rawVideoPath, 50000);
           console.log(`[Job ${jobId}] Manim render complete: ${rawVideoPath}`);
-
-          await job.updateProgress({ step: "Generating audio narration..." });
-
-          // --- Step 4: Generate Audio ---
-          const audioPath = path.join(TEMP_DIR, `${jobId}_audio.mp3`);
-          const escapedDescription = scriptResponse.description.replace(
-            /"/g,
-            '\\"'
-          );
-          const audioCommand = `python3 scripts/generate_audio.py "${escapedDescription}" "${audioPath}"`;
-
-          await execWithTimeout(audioCommand, 60000);
-          await validateFile(audioPath, 1000);
-          console.log(`[Job ${jobId}] Audio generated: ${audioPath}`);
-
-          await job.updateProgress({ step: "Merging video and audio..." });
-
-          // --- Step 5: Merge Video and Audio ---
           const finalVideoPath = path.join(TEMP_DIR, `${jobId}_final.mp4`);
-          const mergeCommand = `python3 scripts/merge_media.py "${rawVideoPath}" "${audioPath}" "${finalVideoPath}"`;
 
-          await execWithTimeout(mergeCommand, 120000);
+          const durationProbe = await execPromise(
+            `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${rawVideoPath}"`
+          );
+          const videoDurationString = durationProbe.stdout.trim();
+
+          // 2. Parse the string into a number (THE FIX)
+          const videoDuration = parseFloat(videoDurationString);
+          if (isNaN(videoDuration)) {
+            throw new Error(
+              `Failed to parse video duration from ffprobe: ${videoDurationString}`
+            );
+          }
+
+          const fadeOutStartTime = Math.max(0, videoDuration - 5);
+
+          // 4. Build the final ffmpeg command string
+          const ffmpegCommand = [
+            "ffmpeg",
+            "-y", // Overwrite output file if it exists
+            "-i", // Specify the input file
+            `"${rawVideoPath}"`,
+            "-c:v", // Set the video codec
+            "libx264", // Use the standard H.264 codec
+            "-preset", // Set the encoding speed/quality balance
+            "medium",
+            "-crf", // Set the quality level (Constant Rate Factor)
+            "23",
+            "-an", // No Audio (strips any audio track)
+            `"${finalVideoPath}"`,
+          ].join(" ");
+
+          await execWithTimeout(ffmpegCommand, 120000); // 2 mins
           await validateFile(finalVideoPath, 50000);
-          console.log(`[Job ${jobId}] Media merge complete: ${finalVideoPath}`);
+          console.log(`[Job ${jobId}] Final video created: ${finalVideoPath}`);
 
+          // --- Step 6 & 7: Upload and Finalize ---
           let finalUrl: string;
           let videoId: string | null = null;
 
@@ -250,7 +251,7 @@ const worker = new Worker(
                   description: description.substring(0, 5000), // YouTube description limit
                   tags: tags.slice(0, 15), // YouTube tags limit
                   categoryId: "27", // Education
-                  privacyStatus: "private", // Safe default
+                  privacyStatus: "unlisted", // Safe default
                 }
               );
 
@@ -316,14 +317,11 @@ const worker = new Worker(
             // Keep local file path if not uploading to YouTube
             finalUrl = finalVideoPath;
           }
-
-          // --- Step 7: Update Job Status ---
           await prisma.videoGenerationJob.update({
             where: { id: jobId },
             data: {
               status: "COMPLETED",
               videoUrl: finalUrl,
-              youtubeVideoId: videoId,
               errorMessage: null,
             },
           });
@@ -331,35 +329,18 @@ const worker = new Worker(
           console.log(
             `[Worker] Job ${jobId} completed successfully: ${finalUrl}`
           );
-
-          return {
-            success: true,
-            url: finalUrl,
-            youtubeVideoId: videoId,
-            type: uploadToYouTube ? "youtube" : "local",
-          };
+          return { success: true, url: finalUrl };
         } catch (stepError: any) {
           const errorMessage = stepError.message || stepError.toString();
           console.error(
             `[Job ${jobId}] Attempt ${attempt} failed:`,
             errorMessage
           );
-
-          jobRecord = await prisma.videoGenerationJob.update({
+          await prisma.videoGenerationJob.update({
             where: { id: jobId },
-            data: {
-              errorMessage,
-              retryCount: attempt,
-            },
+            data: { errorMessage, retryCount: attempt },
           });
-
-          if (attempt >= MAX_RETRIES) {
-            throw new Error(
-              `Job failed after ${MAX_RETRIES} attempts: ${errorMessage}`
-            );
-          }
-
-          // Brief delay before retry
+          if (attempt >= MAX_RETRIES) throw stepError;
           await new Promise((resolve) => setTimeout(resolve, 5000));
         }
       }
@@ -368,42 +349,27 @@ const worker = new Worker(
         `[Worker] Job ${jobId} permanently failed:`,
         finalError.message
       );
-
       await prisma.videoGenerationJob.update({
         where: { id: jobId },
-        data: {
-          status: "FAILED",
-          errorMessage: finalError.message,
-        },
+        data: { status: "FAILED", errorMessage: finalError.message },
       });
-
       throw finalError;
     } finally {
-      // Cleanup
-      try {
-        console.log(`[Job ${jobId}] Cleaning up: ${TEMP_DIR}`);
-        await fs.rm(TEMP_DIR, { recursive: true, force: true });
-      } catch (cleanupError: any) {
-        console.warn(`[Job ${jobId}] Cleanup warning:`, cleanupError.message);
-      }
+      console.log(`[Job ${jobId}] Cleaning up: ${TEMP_DIR}`);
+      await fs
+        .rm(TEMP_DIR, { recursive: true, force: true })
+        .catch((err) => console.warn(`Cleanup warning: ${err.message}`));
     }
   },
-  {
-    connection,
-    concurrency: 1,
-  }
+  { connection, concurrency: 1 }
 );
 
-// Enhanced event listeners
-worker.on("completed", (job) => {
-  console.log(`[Worker] ✅ Job ${job.id} completed successfully`);
-});
-
-worker.on("failed", (job, err) => {
-  if (job) {
-    console.error(`[Worker] ❌ Job ${job.id} failed: ${err.message}`);
-  }
-});
+worker.on("completed", (job) =>
+  console.log(`[Worker] ✅ Job ${job.id} completed.`)
+);
+worker.on("failed", (job, err) =>
+  console.error(`[Worker] ❌ Job ${job?.id} failed: ${err.message}`)
+);
 
 worker.on("progress", (job, progress) => {
   console.log(`[Worker] 📊 Job ${job.id} progress:`, progress);
