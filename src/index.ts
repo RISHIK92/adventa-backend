@@ -11,6 +11,7 @@ import drillRouter from "./routes/drillRoutes.js";
 import userDataRouter from "./routes/userDataRoutes.js";
 import aiScheduleRouter from "./routes/aiScheduleRoutes.js";
 import videoRouter from "./routes/videoRoutes.js";
+import tutorRouter from "./routes/aiTutorRoutes.js";
 import cors from "cors";
 import { YouTubeUploadService } from "./services/youtubeUpload.js";
 
@@ -65,6 +66,7 @@ app.use("/drill", drillRouter);
 app.use("/user", userDataRouter);
 app.use("/schedule", aiScheduleRouter);
 app.use("/video", videoRouter);
+app.use("/tutor", tutorRouter);
 
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");

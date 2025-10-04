@@ -757,6 +757,17 @@ model VideoGenerationJob {
 
   @@index([status])
 }
+
+model ConversationMessage {
+  id          String   @id @default(cuid())
+  userId      String
+  role        String
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 // --- ENUMS ---
 
 enum JobStatus {
