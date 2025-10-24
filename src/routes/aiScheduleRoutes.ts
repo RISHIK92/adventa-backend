@@ -1,5 +1,6 @@
 import {
   generateWeeklySchedule,
+  getDailySchedule,
   getMonthlySchedule,
   getScheduleProfile,
   getTopicsForScheduling,
@@ -15,6 +16,7 @@ router.get("/topics/:examId", verifyFirebaseToken, getTopicsForScheduling);
 router.post("/profile", verifyFirebaseToken, upsertScheduleProfile);
 router.post("/generate-week", verifyFirebaseToken, generateWeeklySchedule);
 router.get("/month", verifyFirebaseToken, getMonthlySchedule);
+router.get("/day", verifyFirebaseToken, getDailySchedule);
 router.patch("/session/:sessionId", verifyFirebaseToken, updateSession);
 router.get("/profile/:examId", verifyFirebaseToken, getScheduleProfile);
 

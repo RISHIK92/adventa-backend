@@ -9,15 +9,10 @@
 export function parseIntelligentJson(text: string): any {
   let cleanText = text.trim();
 
-  // 1. Remove markdown code block delimiters if present
-  // Match ```json, ```JSON, or just ``` at start and ``` at end
   cleanText = cleanText.replace(/^```(?:json|JSON)?\s*\n?/m, "");
   cleanText = cleanText.replace(/\n?```\s*$/m, "");
   cleanText = cleanText.trim();
 
-  // 2. Find the first '{' and the last '}' to get the raw JSON string.
-  // This handles any remaining prefixes like "Here is the JSON:"
-  // and suffixes like "I hope this helps!".
   const firstBrace = cleanText.indexOf("{");
   const lastBrace = cleanText.lastIndexOf("}");
 

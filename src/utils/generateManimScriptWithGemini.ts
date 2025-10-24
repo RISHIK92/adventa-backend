@@ -7,7 +7,7 @@ if (!geminiApiKey) {
   throw new Error("GEMINI_API_KEY is not set in the environment variables.");
 }
 const genAI = new GoogleGenerativeAI(geminiApiKey);
-const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 
 /**
  * Generates a Manim script and a spoken description using the Gemini AI model.
@@ -65,7 +65,6 @@ const generateManimScriptWithGemini = async (context: QuestionDetails) => {
     const result = await geminiModel.generateContent(prompt);
     const responseText = result.response.text();
 
-    // Find the JSON block within the response text to make parsing more robust
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("Gemini response did not contain a valid JSON object.");
@@ -89,7 +88,6 @@ const generateManimScriptWithGemini = async (context: QuestionDetails) => {
     };
   } catch (error) {
     console.error("[Job] Error calling or parsing Gemini API response:", error);
-    // This error will be caught by the worker's retry loop
     throw new Error("Failed to generate script from Gemini.");
   }
 };

@@ -8,7 +8,7 @@ import { parseIntelligentJson } from "../utils/jsonParser.js";
 const prisma = new PrismaClient();
 
 const geminiClassifier = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
+  model: "gemini-2.0-flash",
 });
 const geminiSQL = genAI.getGenerativeModel({
   model: "gemini-2.5-flash",
@@ -17,7 +17,7 @@ const geminiCoach = genAI.getGenerativeModel({
   model: "gemini-2.5-flash",
 });
 const geminiChat = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
+  model: "gemini-2.0-flash",
 });
 
 const COACH_PERSONA_PROMPT = `You are "Ace," an expert AI coach for students preparing for competitive exams. Your tone is always encouraging, analytical, and focused on helping the student improve. You never just state data; you interpret it and provide insights. When you identify a weakness, you frame it constructively and suggest a clear, actionable next step. When you see a strength, you celebrate it and suggest how to leverage it.`;

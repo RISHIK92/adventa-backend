@@ -882,6 +882,7 @@ enum TestType {
   challenge
   custom
   weakness
+  revision
   pyq
 }
 
