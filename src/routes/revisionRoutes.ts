@@ -5,14 +5,16 @@ import {
   getRevisionTestDataForTaking,
   submitRevisionTest,
   getRevisionTestResults,
+  getRevisionTestDashboard,
 } from "../controllers/revisionController.js";
 
 const router = Router();
 
 router.use(verifyFirebaseToken);
 
+router.get("/dashboard/:examId", getRevisionTestDashboard);
 router.post("/generate", generateRevisionTest);
-router.get("/test/:testInstanceId", getRevisionTestDataForTaking);
+router.get("/test-details/:testInstanceId", getRevisionTestDataForTaking);
 router.post("/submit/:testInstanceId", submitRevisionTest);
 router.get("/results/:testInstanceId", getRevisionTestResults);
 

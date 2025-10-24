@@ -11,6 +11,54 @@ import {
 } from "../utils/globalStatsUpdater.js";
 
 /**
+ * ROUTE: GET /revision-test/dashboard/:examId
+ * Fetches a list of previously completed revision tests for the user.
+ */
+const getRevisionTestDashboard = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const { examId } = req.params;
+
+    if (!uid) {
+      return res.status(401).json({ error: "User not authenticated" });
+    }
+    if (!examId) {
+      return res.status(400).json({ error: "Exam ID is required" });
+    }
+
+    const pastTests = await prisma.userTestInstanceSummary.findMany({
+      where: {
+        userId: uid,
+        examId: parseInt(examId),
+        testType: "revision", // The type we use for Revision Tests
+        completedAt: { not: null },
+      },
+      select: {
+        id: true,
+        testName: true,
+        score: true,
+        totalMarks: true,
+        completedAt: true,
+        totalQuestions: true,
+      },
+      orderBy: {
+        completedAt: "desc",
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        pastTests,
+      },
+    });
+  } catch (error) {
+    console.error("Error getting revision test dashboard:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
  * ROUTE: POST /revision-test/generate
  * Generates a new revision test based on user's mistakes and weakest topics.
  */
@@ -54,7 +102,7 @@ const generateRevisionTest = async (req: Request, res: Response) => {
         question: true,
       },
       distinct: ["questionId"],
-      take: Math.ceil(questionCount * 0.6), // 60% from mistake bank
+      take: Math.ceil(questionCount * 0.8), // 60% from mistake bank
     });
     mistakeBankQuestions.forEach((item) =>
       revisionQuestions.set(item.question.id, item.question)
@@ -107,7 +155,7 @@ const generateRevisionTest = async (req: Request, res: Response) => {
     }
 
     const shuffledQuestions = finalQuestions.sort(() => 0.5 - Math.random());
-    const timeLimitMinutes = questionCount * 1.5; // 90 seconds per question on average
+    const timeLimitMinutes = questionCount * 2.0; // 120 seconds per question on average
 
     const testInstance = await prisma.$transaction(async (tx) => {
       const newTestInstance = await tx.userTestInstanceSummary.create({
@@ -115,7 +163,7 @@ const generateRevisionTest = async (req: Request, res: Response) => {
           userId: uid,
           examId: exam.id,
           testName: `Revision Test (${questionCount} Qs)`,
-          testType: "revision", // Using 'weakness' as the revision test type
+          testType: "revision",
           score: 0,
           totalMarks: questionCount * exam.marksPerCorrect,
           totalQuestions: questionCount,
@@ -167,7 +215,7 @@ const getRevisionTestDataForTaking = async (req: Request, res: Response) => {
         .json({ success: false, error: "Test instance ID is required" });
 
     const testInstance = await prisma.userTestInstanceSummary.findFirst({
-      where: { id: testInstanceId, userId: uid, testType: "weakness" },
+      where: { id: testInstanceId, userId: uid, testType: "revision" },
       include: {
         testQuestions: {
           include: { question: true },
@@ -699,7 +747,7 @@ const getRevisionTestResults = async (req: Request, res: Response) => {
       where: {
         id: testInstanceId,
         userId: uid,
-        testType: "weakness", // The type we assigned for Revision Tests
+        testType: "revision", // The type we assigned for Revision Tests
         completedAt: { not: null }, // Ensure the test has actually been submitted
       },
       include: {
@@ -863,6 +911,7 @@ const getRevisionTestResults = async (req: Request, res: Response) => {
 };
 
 export {
+  getRevisionTestDashboard,
   generateRevisionTest,
   getRevisionTestDataForTaking,
   submitRevisionTest,
